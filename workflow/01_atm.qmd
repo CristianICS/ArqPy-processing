@@ -1,0 +1,87 @@
+---
+name: Corrección atmosférica
+author: Cristian Iranzo
+lang: es
+language:
+  es:
+    callout-note-title: "Nota"
+    callout-important-title: "Importante"
+---
+# Corrección atmosférica
+
+Transformar los Niveles Digitales (ND) de la imagen multiespectral (MUL) original de WV3 a valores de reflectividad en superficie (BOA).
+
+El proceso seguido es el siguiente:
+
+1. Convertir fichero TIL en archivo VRT o [*Virtual Raster*](https://gdal.org/en/stable/drivers/raster/vrt.html) (aceptado por GDAL)
+2. Recortar la imagen por el área de estudio (opcional)
+3. Corregir atmosféricamente la imagen MUL (DN -> Radiance -> Reflectance) mediante DOS3 (Song et al., 2001)
+4. Exportar el resultado en formato [Cloud Optimized GeoTIFF](https://gdal.org/en/stable/drivers/raster/cog.html) (COG)
+
+::: {.callout-important}
+Las imágenes resultantes de este proceso se guardan en números enteros, lo que reduce su tamaño. Para obtener los valores de reflectividad hay que multiplicar el valor de un píxel por la constante aplicada, i.e., 10000.
+:::
+
+## Estructura de los ficheros
+
+Las imágenes WV3 deberían estar almacenadas con la siguiente estructura:
+
+```text
+WV3_image/
+  *_MUL/ ...tiles & metadata...
+  *_PAN/ ...tiles & metadata...
+```
+
+Los resultados de la corrección atmosférica (y del posterior pansharpening) se guardarán una nueva carpeta:
+
+```text
+WV3_image/
+  *_BOA/ ...COG & logs...
+```
+
+Contiene las imágenes MUL y PAN corregidas con el método DOS3, además de un archivo `.log` donde se guardan las fórmulas utilizadas para su corrección con GDAL.
+
+## Corrección DOS3
+
+El primer paso es transformar la imagen a formato VRT. Las imágenes WV3 se estructuran en diferentes tiles que son agrupados por el fichero TIL. Los VRT son ficheros similares a los TIL pero con capacidad para guardar un mayor número de metadatos (e.g. valor sin dato) y son aceptados por la librería GDAL. Además, los archivos VRT permiten el cálculo de las correcciones en una única escena sin necesidad de guardar un gran fichero intermedio (i.e., sin necesidad de duplicar datos).
+
+La corrección atmosférica utilizada requiere de varios parámetros internos de la imagen. Se extraen mediante los ficheros que se guardan dentro de las carpetas correspondientes (extensiones `IMD` y `XML`). Se ha creado la clase `WV3` para poder recuperarlos y guardarlos tal y como deben incluirse en las funciones de corrección.
+
+::: {.callout-note}
+Se ha definido una función de corrección en python que permitiría corregir distintos tipos de imágenes siempre que se replicara el comportamiento de la clase `WV3` para el sensor correspondiente.
+:::
+
+La corrección DOS3 aplica la fórmula de transferencia radiativa para resolver la reflectividad:
+
+$$
+\rho = \frac{\pi (L_\lambda - L_{haze}) d^2}{E \cdot cos_\mu \cdot T_z}
+$$
+
+donde
+
+- $L_\lambda$ es la radiancia en la longitud de onda a corregir
+- $L_{haze}$ se corresponde con la radiancia aportada por el efecto atmosférico
+- $d$ es la distancia tierra-sol
+- $E$ se refiere al ESUN (Thuillier-based)
+- $\mu$ es el ángulo cenital solar
+- $T_z$ corresponde a la *Downward Rayleigh transmittance*
+
+El método DOS3 es una actualización del método DOS de Chavez (1996), que ajusta el *Path radiance* o ruido atmosférico ($L_{haze}$) con el valor mínimo de la imagen menos el 1% de la radiancia. Esto es debido a que en la naturaleza no se encuentran cuerpos negros perfectos, i.e., que no reflejen nada de la energía que reciben.
+
+En lugar del valor mínimo, se ha escogido el segundo percentil (MUL) y el percentil 0.1 (PAN) como los valores mínimos, intentando reducir problemas de sobre corrección. El percentil de las imágenes PAN se ha reducido por tener un mayor número de valores bajos, que creaban píxeles negativos con percentiles más altos.
+
+::: {.callout-note}
+Los valores mínimos se calculan a partir de los niveles digitales originales (con información precisa de la energía recibida). Luego son transformados a radiancia.
+:::
+
+La segunda modificación que incluye el método DOS3 es el cálculo de la transmitancia incidente. Se calcula a partir del valor en micrómetros del centro de la banda y el ángulo cenital solar (ver detalles en la función `dark_object_subtraction_v3` del archivo `utils.atm.py`). Este parámetro permite ajustar la corrección en función de la longitud de onda, pues las bandas con una menor longitud de onda (e.g. azul) sufren un mayor efecto de la atmósfera.
+
+::: {.callout-important}
+Antes de realizar la corrección atmosférica, se transforman los valores originales (Niveles Digitales) a radiancia mediante la *Absolute Radiometric Correction*.
+:::
+
+## Referencias
+
+Chavez, P. S. (1996). Image-based atmospheric corrections-revisited and improved. Photogrammetric Engineering and Remote Sensing, 62(9), 1025–1035.
+
+Song, C., Woodcock, C. E., Seto, K. C., Lenney, M. P., & Macomber, S. A. (2001). Classification and Change Detection Using Landsat TM Data. Remote Sensing of Environment, 75(2), 230–244. https://doi.org/10.1016/S0034-4257(00)00169-3

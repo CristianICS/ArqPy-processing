@@ -1,0 +1,30 @@
+---
+name: Neocanales
+author: Cristian Iranzo
+lang: es
+language:
+  es:
+    callout-note-title: "Nota"
+    callout-warning-title: "Advertencia"
+    callout-important-title: "Importante"
+output: pdf
+---
+# Neocanales
+
+Creación de componentes principales e índices espectrales.
+
+## Componentes principales
+
+Se realizan con el algoritmo de OrfeoToolBox `DimensionalityReduction`.
+
+Se han calculado los PCs en 219 combinaciones entre todas las bandas WV3 (con un mínimo de 3 bandas). La imagen resultante contiene todos los componentes principales resultado del análisis, siendo este igual al número de bandas de la combinación.
+
+Los resultados de las combinaciones que contienen la banda NIR2 (a la que se ha aplicado el método LMNV) se guardan en una carpeta aparte debido a su diferente calidad en la resolución espacial.
+
+## Índices espectrales
+
+Se calculan con la herramienta `gdal_calc` a través de un proceso iterativo que calcula todos los índices en el archivo `data/indices.json` de forma automática.
+
+::: {.callout-important}
+Se han asimilado todas las bandas del NIR con la banda NIR1 de WV3.
+:::

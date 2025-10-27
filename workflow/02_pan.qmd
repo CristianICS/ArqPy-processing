@@ -1,0 +1,196 @@
+---
+name: Pan-sharpening
+author: Cristian Iranzo
+lang: es
+language:
+  es:
+    callout-note-title: "Nota"
+    callout-warning-title: "Advertencia"
+    callout-important-title: "Importante"
+output: pdf
+---
+# Pan-sharpening
+
+Se utilizan dos tipos de técnicas:
+
+- **Local Mean and Variance Matching (LMNV)** (a.k.a. *Local Mean and Variance Replacement*, *LMVM*, o *Adaptive IHS*)
+- weighted Brovey
+
+El método de Brovey es específico para tareas de visualización. Sin embargo, no puede utilizarse para corregir bandas cuyo rango espectral quede fuera del recogido por la banda PAN. En WV3, es el caso de la banda 8 (NIR2). El método LMNV se utiliza para corregir esta última.
+
+## Pasos
+
+1. Ejecutar wBrovey con GDAL. Se obtiene un COG con las bandas 1-7.
+2. Ejecutar LMNV con Orfeo ToolBox. Se obtiene un TIF con la banda 8.
+3. Obtener la anterior banda en formato COG.
+4. Guardar un VRT con los dos productos del pansharpening para obtener una imagen virtual con las 8 bandas.
+
+## Resultados
+
+Al acabar el procedimiento se obtienen dos imágenes:
+
+- <IMG_NAME>_wBrovey.tif: 7 bandas corregidas con `wBrovey`
+- <IMG_NAME>_B08_NIR2_Plmvm.tif: 1 banda (N2) corregida con `LMNV`
+- <IMG_NAME>_HIGHRES_stack.vrt: Archivo virtual que sirve para agrupar en una sola imagen las 8 bandas de las dos imágenes anteriores.
+
+Dado que tienen la misma resolución y están alineadas, se crea un raster virtual (VRT) con el que poder visualizar todas las bandas de manera conjunta en un SIG sin necesidad de juntarlas en un único archivo.
+
+```bash
+gdalbuildvrt -separate -overwrite stack.vrt first_3band.tif second_1band.tif
+```
+
+## LMNV
+
+Algoritmo que preserva los niveles de reflectividad originales en las bandas multiespectrales, incluyendo solamente el componente espacial de la banda PAN. Otros ejemplos de este tipo de algoritmos son Gram-Schmidt/GSA, Bayesian y HPF (High-Pass Modulation).
+
+::: {.callout-important}
+Se ha utilizado para aumentar la resolución de la banda NIR2, fuera del rango espectral de la banda PAN, y por tanto imposible de incluir en el método Brovey (mejor para tareas de visualización).
+:::
+
+Este método trata de:
+
+* Incorporar el mayor detalle de resolución espacial de la PAN en las bandas multiespectrales.
+* Preservar las estadísticas y relaciones locales de los valores de reflectividad en la imagen MUL.
+
+La fórmula utilizada es la siguiente:
+
+$$
+MS' = MS + \frac{\sigma_{MS}}{\sigma_{PAN}} \times (PAN_{HP})
+$$
+
+o, equivalente
+
+$$
+MS' = MS + k \cdot (PAN_{HP})
+$$
+
+donde
+
+* $MS'$ = Imagen MUL *pansharpened*
+* $MS$ = Imagen MUL original
+* $PAN_{HP}$ = Imágen PAN a la que se aplica un filtro de paso alto (*high-pass*).
+* $\sigma_{MS}$ and $\sigma_{PAN}$ = Desviaciones estándar locales (calculadas con un *kernel* o ventana móvil, e.g., 11×11 or 15×15)
+* $k = \sigma_{MS}\/\sigma_{PAN}$ mantiene la consistencia local de la variancia en la ventana anterior.
+
+Si se utiliza este método, el enfoque recomendado es corregir la imagen MUL para obtener valores de radiancia o reflectividad y **utilizar la banda PAN original** (i.e., sin ningún tipo de corrección). Al tener en cuenta únicamente los valores PAN para calcular el componente espacial, no es necesario transformarlos.
+
+Sin embargo, dado que el método de Brovey si que lo requiere, se aplica una técnica de corrección del *Path Radiance* o "ruido" atmosférico que utilice valores internos de la imagen (i.e. DOSv3).
+
+Además de poder utilizar la imagen PAN sin necesidad de corregirla, este método se elige sobre todo por la capacidad para realizar el pan-sharpening en la banda del NIR2 (860–1040 nm), que no se encuentra dentro del espectro que recoge la PAN (450–800 nm). Al no existir una correlación directa entre ambas bandas, los métodos simples basados en la relación PAN/MUL no se recomiendan. Estos podrían introducir una fuerte distorsión espectral.
+
+Aunque espectralmente el NIR2 no se encuentre dentro de la PAN, las estructuras espaciales de ambas si que se corresponden entre sí (bordes, formas, texturas con carreteras, edificios etc.), influyendo en la distribución de la reflectividad en el NIR2. La principal ventaja de este método (o de cualquiera que esté dentro de la familia de técnicas *High-Pass Modulation* o HPM), es que puede mejorar la resolución espacial del NIR2 sin distorsionar demasiado la información espectral.
+
+::: {.callout-note}
+Actualmente no existen indices espectrales a los que se haya asociado la banda del NIR2. Solo se usa al combinar los PCA.
+:::
+
+### Aplicación
+
+Una forma eficiente de ejecutar LMNV es utilizar la herramienta de [Orfeo ToolBox](https://www.orfeo-toolbox.org).
+
+1. Descargar OTB desde el [sitio oficial](https://www.orfeo-toolbox.org/download/)
+2. Descomprimir la carpeta en `C:/`
+3. Crear un nuevo ambiente de trabajo en conda que cumpla con los requisitos de OTB:
+
+    ```bash
+    conda create -n otb-env python=3.10
+    conda activate otb-env
+    conda install numpy<2 gdal -y
+    ```
+
+El acceso a la herramienta desde python puede realizarse creando dos ejecutables que guarden la ruta a OTB cada vez que se acceda al ambiente de conda.
+
+Dentro de 
+
+```bash
+C:\Users\usuario\miniforge3\envs\otb-env\etc\conda\activate.d
+```
+
+crear y guardar el fichero `otb_env.bat`:
+
+```bat
+<!-- otb_env.bat inside activate.d-->
+@echo off
+set "OTB_HOME=C:\OTB-9.1.1-Win64"
+set "OTB_APPLICATION_PATH=%OTB_HOME%\lib\otb\applications"
+set "GDAL_DATA=%OTB_HOME%\share\gdal"
+set "PROJ_LIB=%OTB_HOME%\share\proj"
+rem --- add the Python bindings path ---
+set "PYTHONPATH=%OTB_HOME%\lib\otb\python;%PYTHONPATH%"
+rem --- put OTB dlls first so they win over conda-gdal/itk ---
+set "PATH=%OTB_HOME%\bin;%OTB_HOME%\lib;%PATH%"
+```
+
+El anterior archivo se llamará cada vez que se acceda al ambiente de trabajo desde conda. A continuación, se crea otro archivo que se ejecuta cada vez que se cierra, localizado en
+
+```bash
+C:\Users\usuario\miniforge3\envs\otb-env\etc\conda\deactivate.d
+```
+
+```bat
+<!-- otb_env.bat inside deactivate.d-->
+@echo off
+set "PATH=%PATH:C:\OTB-9.1.1-Win64\bin;=%"
+set "PATH=%PATH:C:\OTB-9.1.1-Win64\lib;=%"
+<!-- Leave the following vars in blank -->
+set OTB_APPLICATION_PATH=
+set GDAL_DATA=
+set PROJ_LIB=
+```
+
+| Parameter         | Recommended                                         | Notes                                |
+| ----------------- | --------------------------------------------------- | ------------------------------------ |
+| High-pass filter  | Gaussian or Laplacian                               | Remove low frequencies from PAN      |
+| Local window size | 11x11 or 15x15 pixels                               | Must match spatial scale differences |
+| Normalization     | Match local mean/variance                           | Prevents over-sharpening             |
+| Stretching        | Optional linear stretch after fusion                | Helps restore contrast               |
+| Validation        | Compare histograms / correlation with original NIR2 | Should remain nearly identical       |
+
+## Brovey
+
+Técnica que relaciona los valores de la PAN con una PAN sintética, creada a partir de la imagen MUL. Ambas imágenes deben estar linealmente relacionadas. Se aplica mediante la herramienta de GDAL `gdal_pansharpen.py` [gdal.org](https://gdal.org/en/stable/programs/gdal_pansharpen.html).
+
+::: {.callout-important}
+Este tipo de técnicas solo se recomiendan para tareas de visualización. Los valores de reflectividad resultantes pueden diferir más que el método LMNV de los valores reales.
+:::
+
+::: {.callout-note}
+La corrección atmosférica de la imagen PAN debe hacerse con un método interno (e.g. DOS). Aplicar un modelo de transferencia radiativa basado en la longitud de onda de la PAN podría derivar en errores, ya que el rango de esta última abarca una gran cantidad de longitudes de onda. Para aplicar uno de estos modelos (e.g. 6S) se debería establecer una relación entre los valores de 6S en la banda MUL y los valores de la banda PAN.
+:::
+
+## TODO: Z-PNN
+
+Método basado en redes neuronales para transferir la componente espacial de la imagen PAN a la imagen MUL. Dentro del repositorio `Z-PNN`(https://arxiv.org/abs/2111.08334) se pueden encontrar diferentes arquitecturas. Se recomienda utilizar solamente las variantes `Z` (*zero-shot / target-adaptive at full resolution*). `Z-PanNet` es la arquitectura más segura para aplicar el proceso de pansharpening a una imagen WV3 sin corrección de la banda PAN.
+
+* Los modelos *Zero-shot / target-adaptive full-resolution training* adaptan la red neuronal al par de imágenes MUL y PAN, sin depender de asunciones preconcebidas entre ambas.
+* La arquitectura **PanNet** tiende a mejorar a los modelos más simples **PNN** y el anterior **DRPNN** sobre imágenes WV2/WV3.
+
+:::{.callout-warning}
+Al aplicarlo, el siguiente error es devuelto, lo que indica que se necesita más memoria para poder aplicarlo:
+
+```bash
+numpy.core._exceptions._ArrayMemoryError:
+Unable to allocate 3.03 GiB for an array with shape (8301, 6119, 8)
+and data type float64
+```
+:::
+
+## Notas técnicas
+
+A la hora de ejecutar las operaciones con Orfeo ToolBox, no se han podido implementar los parámetros utilizados en GDAL para comprimir los archivos, i.e., transformar los GTiff en archivos *Cloud Optimized Geotif* (COG). Por lo tanto, las imágenes resultantes ocupan mucho más espacio del deseado (alrededor de 10GB con el recorte del área de estudio).
+
+Se soluciona aplicando la herramienta `gdal_translate` para transformar las imágenes pansharpen al formato COG. Una imagen de alrededor de 10GB pasa a ocupar 1GB. También agiliza la visualización en un GIS.
+
+```bash
+gdal_translate original.tif cog.tif -of COG -co COMPRESS=DEFLATE -co PREDICTOR=2 \
+-co BIGTIFF=IF_SAFER -co NUM_THREADS=ALL_CPUS -co OVERVIEWS=AUTO
+```
+
+::: {.callout-note}
+La opción `PREDICTOR` se establece en 2 para imágenes con números enteros y en 3 para las que tienen datos decimales.
+:::
+
+## Enlaces de interés
+
+- [How to pan sharpen images using the Gram Schmidt](https://www.researchgate.net/publication/274676820_How_to_pan-sharpen_images_using_the_Gram-Schmidt_pan-sharpen_method_-_A_recipe/fulltext/57e1e7a308ae9e25307d4c67/How-to-pan-sharpen-images-using-the-Gram-Schmidt-pan-sharpen-method-A-recipe.pdf)
+

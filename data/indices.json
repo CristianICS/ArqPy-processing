@@ -1,0 +1,504 @@
+{
+    "BAI": {
+        "application_domain": "burn",
+        "bands": [
+            "R",
+            "N"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "1.0 / ((0.1 - R) ** 2.0 + (0.06 - N) ** 2.0)",
+        "long_name": "Burned Area Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://digital.csic.es/bitstream/10261/6426/1/Martin_Isabel_Serie_Geografica.pdf",
+        "short_name": "BAI"
+    },
+    "DVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "N - R",
+        "long_name": "Difference Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1016/0034-4257(94)00114-3",
+        "short_name": "DVI"
+    },
+    "GDVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "G"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "N - G",
+        "long_name": "Green Difference Vegetation Index ",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": " https://doi.org/10.2134/agronj2005.0200",
+        "short_name": "GDVI"
+    },
+    "GEMI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "0.75*((2.0*((B ** 2.0)-(A ** 2.0)) + 1.5*B + 0.5*A)/(B + A + 0.5)) - ((A - 0.125)/(1-A))",
+        "long_name": "Global Environment Monitoring Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1007/BF00031911",
+        "short_name": "GEMI"
+    },
+    "GM1": {
+        "application_domain": "vegetation",
+        "bands": [
+            "RE2",
+            "G"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "RE2/G",
+        "long_name": "Gitelson and Merzlyak Index 1",
+        "platforms": [
+            "Sentinel-2"
+        ],
+        "reference": "https://doi.org/10.1016/S0176-1617(96)80284-7",
+        "short_name": "GM1"
+    },
+    "GNDVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "G"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "(N - G)/(N + G)",
+        "long_name": "Green Normalized Difference Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1016/S0034-4257(96)00072-7",
+        "short_name": "GNDVI"
+    },
+    "GRVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "G"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "N/G",
+        "long_name": "Green Ratio Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.2134/agronj2004.0314",
+        "short_name": "GRVI"
+    },
+    "IPVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "N/(N + R)",
+        "long_name": "Infrared Percentage Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1016/0034-4257(90)90085-Z",
+        "short_name": "IPVI"
+    },
+    "MTVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R",
+            "G"
+        ],
+        "contributor": "",
+        "date_of_addition": "2022-04-28",
+        "formula": "1.44*(N - G) - 3*(R - G)",
+        "long_name": "Modified Triangular Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1016/j.rse.2003.12.013",
+        "short_name": "MTVI"
+    },
+    "NBLI": {
+        "application_domain": "urban",
+        "bands": [
+            "R",
+            "T1"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "(R - T1)/(R + T1)",
+        "long_name": "Normalized Difference Bare Land Index",
+        "platforms": [
+            "Landsat-89",
+            "Landsat-457"
+        ],
+        "reference": "https://doi.org/10.3390/rs9030249",
+        "short_name": "NBLI"
+    },
+    "NDSI": {
+        "application_domain": "snow",
+        "bands": [
+            "G",
+            "N"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-04-07",
+        "formula": "(G - N) / (G + N)",
+        "long_name": "Normalized Difference Snow Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS"
+        ],
+        "reference": "https://doi.org/10.1109/IGARSS.1994.399618",
+        "short_name": "NDSI"
+    },
+    "NDVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/CristianICS",
+        "date_of_addition": "2022-04-28",
+        "formula": "(N-R)/(N+R)",
+        "long_name": "Normalized Difference Vegetation Index",
+        "platforms": [
+            "Landsat-89",
+            "Landsat-457",
+            "Sentinel-2",
+            "MODIS"
+        ],
+        "reference": "Rouse, J.W., Hasas, R.H., Schell, J.A., Deerino,D.W., Harlan, J.C. 1974. Monitoring the vernal advancement of retrogradation of natural vegetation. NASA/OSFC. Type III. Final Report. Oreenbello  MD. pp. 371",
+        "short_name": "NDVI"
+    },
+    "NDVIT": {
+        "application_domain": "burn",
+        "bands": [
+            "N",
+            "R",
+            "T1"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-28",
+        "formula": "(N - (R * T1 / 10000.0))/(N + (R * T1 / 10000.0))",
+        "long_name": "Normalized Difference Vegetation Index Thermal",
+        "platforms": [
+            "Landsat-89",
+            "Landsat-457"
+        ],
+        "reference": "https://doi.org/10.1080/01431160600954704",
+        "short_name": "NDVIT"
+    },
+    "NLI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-05-11",
+        "formula": "((N ** 2) - R)/((N ** 2) + R)",
+        "long_name": "Non-Linear Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1080/02757259409532252",
+        "short_name": "NLI"
+    },
+    "OSAVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "Sergio Sanmartin",
+        "date_of_addition": "2022-06-23",
+        "formula": "1.5 * (N - R) / (N + R + 0.16)",
+        "long_name": "Optimised Soil Adjusted Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion",
+            "WV3"
+        ],
+        "reference": "https://doi.org/10.1016/0034-4257(95)00186-7",
+        "short_name": "OSAVI"
+    },
+    "RDRER": {
+        "application_domain": "vegetation",
+        "bands": [
+            "RE1",
+            "R"
+        ],
+        "contributor": "Sergio Sanmartin",
+        "date_of_addition": "2022-06-23",
+        "formula": "(RE1 - R) / (RE1 + R)",
+        "long_name": "Normalised Difference Red-Edge/Red",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion",
+            "WV3"
+        ],
+        "reference": "https://doi.org/10.1016/j.jag.2012.10.008",
+        "short_name": "RDRER"
+    },
+    "RDVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-05-14",
+        "formula": "(N - R) / ((N + R) ** 0.5)",
+        "long_name": "Renormalized Difference Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1016/0034-4257(94)00114-3",
+        "short_name": "RDVI"
+    },
+    "SAVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-04-07",
+        "formula": "(1.0 + 0.5) * (N - R) / (N + R + 0.5)",
+        "long_name": "Soil-Adjusted Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1016/0034-4257(88)90106-X",
+        "short_name": "SAVI"
+    },
+    "SR": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-08",
+        "formula": "N/R",
+        "long_name": "Simple Ratio",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.2307/1936256",
+        "short_name": "SR"
+    },
+    "TCARI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "RE1",
+            "R",
+            "G"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-05-13",
+        "formula": "3 * ((RE1 - R) - 0.2 * (RE1 - G) * (RE1 / R))",
+        "long_name": "Transformed Chlorophyll Absorption in Reflectance Index",
+        "platforms": [
+            "Sentinel-2"
+        ],
+        "reference": "https://doi.org/10.1016/S0034-4257(02)00018-4",
+        "short_name": "TCARI"
+    },
+    "TCARIOSAVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "RE1",
+            "R",
+            "G",
+            "N"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-11-06",
+        "formula": "(3 * ((RE1 - R) - 0.2 * (RE1 - G) * (RE1 / R))) / (1.16 * (N - R) / (N + R + 0.16))",
+        "long_name": "TCARI/OSAVI Ratio",
+        "platforms": [
+            "Sentinel-2"
+        ],
+        "reference": "https://doi.org/10.1016/S0034-4257(02)00018-4",
+        "short_name": "TCARIOSAVI"
+    },
+    "TCI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "RE1",
+            "G",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-05-14",
+        "formula": "1.2 * (RE1 - G) - 1.5 * (R - G) * (RE1 / R) ** 0.5",
+        "long_name": "Triangular Chlorophyll Index",
+        "platforms": [
+            "Sentinel-2"
+        ],
+        "reference": "http://dx.doi.org/10.1109/TGRS.2007.904836",
+        "short_name": "TCI"
+    },
+    "TDVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-09",
+        "formula": "1.5 * ((N - R)/((N ** 2.0 + R + 0.5) ** 0.5))",
+        "long_name": "Transformed Difference Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://doi.org/10.1109/IGARSS.2002.1026867",
+        "short_name": "TDVI"
+    },
+    "TRRVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "RE2",
+            "R",
+            "N"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-09-18",
+        "formula": "((RE2 - R) / (RE2 + R)) / (((N - R) / (N + R)) + 1.0)",
+        "long_name": "Transformed Red Range Vegetation Index",
+        "platforms": [
+            "Sentinel-2"
+        ],
+        "reference": "https://doi.org/10.3390/rs12152359",
+        "short_name": "TRRVI"
+    },
+    "TVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2022-04-08",
+        "formula": "(((N - R)/(N + R)) + 0.5) ** 0.5",
+        "long_name": "Transformed Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "https://ntrs.nasa.gov/citations/19740022614",
+        "short_name": "TVI"
+    },
+    "TriVI": {
+        "application_domain": "vegetation",
+        "bands": [
+            "N",
+            "G",
+            "R"
+        ],
+        "contributor": "https://github.com/davemlz",
+        "date_of_addition": "2021-05-14",
+        "formula": "0.5 * (120 * (N - G) - 200 * (R - G))",
+        "long_name": "Triangular Vegetation Index",
+        "platforms": [
+            "Sentinel-2",
+            "Landsat-89",
+            "Landsat-457",
+            "MODIS",
+            "Planet-Fusion"
+        ],
+        "reference": "http://dx.doi.org/10.1016/S0034-4257(00)00197-8",
+        "short_name": "TriVI"
+    }
+}
