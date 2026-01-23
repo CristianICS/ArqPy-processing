@@ -1,0 +1,12 @@
+name: mae_minimal
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - timm
+  - einops
+  - scikit-learn
+  - pytorch
+  - torchvision
+  - conda-pack
+  - pysimplegui
