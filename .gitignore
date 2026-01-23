@@ -1,7 +1,10 @@
 /Python_deprecated
-/data
 /Notebooks
 /paper
 /workflow
 /requirements_mae_full.yml
 /requirements_pnn.yml
+/data/*
+!/data/rois/
+/data/rois/*
+!/data/rois/aoi_zar_tepe.kml
