@@ -27,6 +27,10 @@ The `pca`, `pansharpening` and `spectral_indices` operations are available only 
 
 The `highpass` and `mae` operations are available for any image provided in GeoTIFF format.
 
+## Data
+
+This repository includes a reduced WorldView-3 image provided for testing and demonstration purposes. The dataset covers the Zar Tepe archaeological site (Uzbekistan).
+
 ## Installation
 
 No installation is required beyond downloading and extracting the toolbox.
