@@ -23,7 +23,6 @@ def run_job(values):
         
         method = values["-ALGORITHM-"]
         if method == "Bayesian":
-            # TODO: Remove C band inside LEGION band
             print("Starting Bayesian pansharpening...")
             bayes_img_name = mul_img_path.name.replace(".tif", "_bayes.tif")
             bayes_img_path = out_folder / bayes_img_name

@@ -331,14 +331,7 @@ def compute_mae_stats(img_path):
             # Skip fully masked blocks
             if data.count() == 0:
                 continue
-
-            # Convert to ndarray and filter invalid values
-            values = data.compressed()  # removes masked values
-            values = values[np.isfinite(values)]  # removes NaN / inf
-
-            if values.size == 0:
-                continue
-
+            
             # Update sum and count
             total_sum += data.sum()
             total_count += data.count()

@@ -1,4 +1,4 @@
-name: mae_minimal
+name: mae
 channels:
   - conda-forge
 dependencies:
