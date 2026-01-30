@@ -98,8 +98,7 @@ def correct_raster_streaming(
     sensor: SensorParams,
     out: OutputSpec = OutputSpec(),
     build_overviews: bool = False,
-    scale_to_int: bool = False,
-    scale_factor: float = 10000.0
+    scale_to_int: bool = False
 ) -> None:
     """
     Apply per-band atmospheric (or radiometric) corrections efficiently
@@ -123,10 +122,8 @@ def correct_raster_streaming(
     build_overviews : bool
         If True, builds overview levels (2,4,8,16) with average resampling.
     scale_to_int : bool, optional
-        If True, multiply results by `scale_factor` and convert to int16.
+        If True, multiply results by OutSpec.scale and convert to int16.
         Useful for storing reflectance-like outputs as scaled integers.
-    scale_factor : float, optional
-        Constant factor used when `scale_to_int=True`. Default is 10000.
 
     Notes
     -----
@@ -336,16 +333,15 @@ def correct_raster_streaming(
                     else:
                         out_arr *= scale_val
 
-                # Scale to int if requested (valid pixels will have been
-                # changed already; nodata will be restored later)
-                if has_valid and scale_to_int:
-                    out_arr *= scale_factor
-                    out_arr = np.clip(
-                        out_arr,
-                        0,
-                        np.iinfo(np.int16).max
-                    )
-                    out_arr = out_arr.astype(np.int16, copy=False)
+                    # Scale to int if requested (valid pixels will have been
+                    # changed already; nodata will be restored later)
+                    if scale_to_int:
+                        out_arr = np.clip(
+                            out_arr,
+                            0,
+                            np.iinfo(np.int16).max
+                        )
+                        out_arr = out_arr.astype(np.int16, copy=False)
 
                 # Clip
                 if has_valid and (not np.isinf(clamp_min) or not np.isinf(clamp_max)):

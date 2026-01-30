@@ -1,9 +1,11 @@
 from osgeo_utils.gdal_calc import main as gdal_calc
 from importlib.resources import files
 from pathlib import Path
-
+from osgeo import gdal
 import re
 import json
+
+gdal.DontUseExceptions()
 
 class Indices:
     
@@ -34,7 +36,7 @@ class Indices:
             img_band_pos: list[int],
             img_band_names: list[str],
             out_dir: str|Path,
-            nodata = 0,
+            clip_layer_path: str|Path|bool = False,
             overwrite = False,
             creation_opts = ["COMPRESS=DEFLATE", "PREDICTOR=3"]
         ):
@@ -44,11 +46,20 @@ class Indices:
 
         :indices_path: Path to the json file with indices metadata.
         :index_key: Index short name. Must be the same as its JSON's key.
-        :img_path: Pansharpened image path with 7 bands (up to NIR1).
-        :img_band_pos: Position of image bands linked to img_bands keys.
+        :img_path: Image path which bands will use to compute the indices.
+        :img_band_pos: Position of image bands linked to img_band_names.
         :img_band_names: Image band keys (e.g. R)
-        :out_dir: Directory to store image.
+        :out_dir: Directory to store the computed index.
+        :clip_layer_path: An optional path with a vector layer to clip the 
+            index.
+        :overwrite: Recompute an index if it exists in out_dir.
+        :creation_opts: GDAL creation options.
         """
+        # Extract the nodata value
+        ds = gdal.Open(img_path, gdal.GA_ReadOnly)
+        nodata = ds.GetRasterBand(1).GetNoDataValue()
+        ds = None
+
         # Open index metadata's JSON
         indices_json = open(Indices.indices_path)
         indices_json = json.load(indices_json)
@@ -115,16 +126,21 @@ class Indices:
             band_idx = name_to_band[nm]  # 1-based
             argv += [f"-{L}", str(img_path), f"--{L}_band", str(band_idx)]
 
+        if clip_layer_path:
+            img_suffix = "_temp"
+        else:
+            img_suffix = ""
+
         out_path = Path(
             out_dir,
-            f"{index_key}_" + img_path.name.replace(".vrt", ".tif")
+            f"{index_key}_{img_path.stem}{img_suffix}.tif"
         )
 
         argv += [
             # Integer constant
             "--calc", letter_formula,
             "--type", "Float32",
-            "--NoDataValue", "-9999",
+            "--NoDataValue", f"{nodata}",
             "--outfile", str(out_path)
         ]
         if overwrite:
@@ -142,3 +158,25 @@ class Indices:
         # print("argv:", " ".join(argv))
 
         gdal_calc(argv)
+
+        if clip_layer_path:
+            co = [
+                "COMPRESS=DEFLATE",
+                "PREDICTOR=3", # Better for floats
+                "BIGTIFF=IF_SAFER"
+            ]
+            out_clip_path = out_path.with_stem(
+                out_path.stem.replace(img_suffix, "")
+            )
+            gdal.Warp(
+                out_clip_path,              # dst
+                out_path,                   # src
+                cutlineDSName=clip_layer_path,
+                cropToCutline=True,
+                dstNodata=nodata,
+                multithread=True,
+                format = "COG",
+                creationOptions=co,
+                warpOptions=["NUM_THREADS=ALL_CPUS"]
+            )
+            out_path.unlink()

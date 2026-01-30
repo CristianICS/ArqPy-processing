@@ -1,9 +1,11 @@
 from pathlib import Path
-
+from osgeo import gdal
 from pansharp import SENSORS
 from pansharp import brovey, bayesian
 
 import PySimpleGUI as sg
+
+gdal.UseExceptions()
 
 def run_job(values):
     """Perform a pansharpening operation."""
@@ -17,6 +19,16 @@ def run_job(values):
         if not pan_img_path.exists():
             return FileNotFoundError(pan_img_path)
         
+        clip_path = Path(values.get("-CLIP_VECTOR-", ""))
+        if not clip_path.exists():
+                sg.popup_ok("The vector folder does not exist.\
+                             Please switch it to a valid one.")
+        if clip_path == Path(""):
+            img_suffix = ""
+        else:
+            # Append a suffix to the pansharpen image to overwrite it
+            img_suffix = "_temp"
+
         out_folder = Path(values["-OUT-"])
         if not out_folder.exists():
             out_folder.mkdir(exist_ok=True)
@@ -24,31 +36,61 @@ def run_job(values):
         method = values["-ALGORITHM-"]
         if method == "Bayesian":
             print("Starting Bayesian pansharpening...")
-            bayes_img_name = mul_img_path.name.replace(".tif", "_bayes.tif")
-            bayes_img_path = out_folder / bayes_img_name
-            bayesian(mul_img_path, pan_img_path, bayes_img_path)
+            out_img_name = mul_img_path.name.replace(
+                ".tif",
+                f"_bayes{img_suffix}.tif"
+            )
+            out_img_path = out_folder / out_img_name
+            bayesian(mul_img_path, pan_img_path, out_img_path)
 
         else:
             # Perform weighted Brovey pansharpening
-            brov_img_name = mul_img_path.name.replace(".tif", "_brovey.tif")
-            brov_img_path = out_folder / brov_img_name
+            out_img_name = mul_img_path.name.replace(
+                ".tif", 
+                f"_brovey{img_suffix}.tif"
+            )
+            out_img_path = out_folder / out_img_name
             brovey(
                 SENSORS[values["-SENSOR-"]],
-                mul_img_path, pan_img_path, brov_img_path)
+                mul_img_path, pan_img_path, out_img_path)
 
             if values["-SENSOR-"] == "WV3":
                 lmnv_path = SENSORS[values["-SENSOR-"]].lmnv(
                     mul_img_path, pan_img_path)
                 SENSORS[values["-SENSOR-"]].merge_pansharpened_bands(
-                    brov_img_path, lmnv_path
+                    out_img_path, lmnv_path
                 )
+
+        if clip_path != Path(""):
+            print("Clipping...")
+            co = [
+                "COMPRESS=DEFLATE",
+                "PREDICTOR=2",
+                "BIGTIFF=IF_SAFER"
+            ]
+            out_clip_path = out_img_path.with_stem(
+                out_img_path.stem.replace(img_suffix, "")
+            )
+            gdal.Warp(
+                out_clip_path,              # dst
+                out_img_path,                   # src
+                cutlineDSName=clip_path,
+                cropToCutline=True,
+                dstNodata=-9999,
+                multithread=True,
+                format = "COG",
+                creationOptions=co,
+                warpOptions=["NUM_THREADS=ALL_CPUS"]
+            )
+            out_img_path.unlink()
+
     except Exception as e:
         return e
 
 def main():
     sg.theme('VSCodeDark')
 
-    title = [sg.Text("Pansharpening Tool for WV3", font=("Arial", 16, "bold"))]
+    title = [sg.Text("Pansharpening Tool", font=("Arial", 16, "bold"))]
 
     layout = [
         title,
@@ -62,6 +104,20 @@ def main():
         [sg.Text("Leave it blank if you want to autocreate it", font=("Arial", 10, "italic"))],
         [sg.Input(key="-OUT-"),sg.FolderBrowse()],
         
+        # Clip operation
+        # Vector layer path
+        [sg.Text("Vector layer to perform a clip operation:")],
+        [sg.Text("Leave it blank to skip", font=("Arial", 10, "italic"))],
+        [
+            sg.Input(key="-CLIP_VECTOR-",),
+            sg.FileBrowse(
+                file_types=(
+                    ("Vector files", "*.shp;*.gpkg;*.geojson;*.kml"),
+                    ("All files", "*.*"),
+                )
+            )
+        ],
+
         [sg.Text("Sensor"), sg.Combo(
             list(SENSORS.keys()),
             key="-SENSOR-",

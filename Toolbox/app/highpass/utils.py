@@ -92,7 +92,9 @@ class GDALHighPassFilter:
     # -------------------------
     # Public API
     # -------------------------
-    def run_all(self, out_prefix: Path) -> Tuple[Path, Path, Path, Path]:
+    def run_all(
+        self, out_prefix: Path, clip_layer_path: str|bool = False
+    ) -> Tuple[Path, Path, Path, Path]:
         """
         Compute:
           - laplacian
@@ -102,15 +104,49 @@ class GDALHighPassFilter:
 
         Returns output paths in that order.
         """
+        if clip_layer_path:
+            sfx = "_temp"
+
         out_prefix = Path(out_prefix)
         out_prefix.parent.mkdir(parents=True, exist_ok=True)
 
-        lap = self.apply_kernel(HighPassKernels.LAPLACIAN_4N, out_prefix.with_name(out_prefix.name + "_laplacian.tif"))
-        log = self.apply_kernel(HighPassKernels.LOG_5, out_prefix.with_name(out_prefix.name + "_log5.tif"))
-        sob = self.apply_sobel_magnitude(out_prefix.with_name(out_prefix.name + "_sobel_mag.tif"))
-        hb = self.apply_kernel(HighPassKernels.HIGHBOOST_3, out_prefix.with_name(out_prefix.name + "_highboost.tif"))
+        # Create output names and paths
+        lap_name = out_prefix.name + f"_laplacian{sfx}.tif"
+        lap_path = out_prefix.with_name(lap_name)
+        log_name = out_prefix.name + f"_log5{sfx}.tif"
+        log_path = out_prefix.with_name(log_name)
+        sob_name = out_prefix.name + f"_sobel_mag{sfx}.tif"
+        sob_path = out_prefix.with_name(sob_name)
+        hbt_name = out_prefix.name + f"_highboost{sfx}.tif"
+        hbt_path = out_prefix.with_name(hbt_name)
 
-        return lap, log, sob, hb
+        lap = self.apply_kernel(HighPassKernels.LAPLACIAN_4N, lap_path)
+        log = self.apply_kernel(HighPassKernels.LOG_5, log_path)
+        sob = self.apply_sobel_magnitude(sob_path)
+        hbt = self.apply_kernel(HighPassKernels.HIGHBOOST_3, hbt_path)
+
+        if clip_layer_path:
+            for lpath in [lap_path, log_path, sob_path, hbt_path]:
+                clip_out = lpath.with_name(lpath.name.replace(sfx, ""))
+                co = [
+                    "COMPRESS=DEFLATE",
+                    "PREDICTOR=3", # Better for floats
+                    "BIGTIFF=IF_SAFER"
+                ]
+
+                gdal.Warp(
+                    clip_out,              # dst
+                    lpath,                   # src
+                    cutlineDSName=clip_layer_path,
+                    cropToCutline=True,
+                    multithread=True,
+                    format = "COG",
+                    creationOptions=co,
+                    warpOptions=["NUM_THREADS=ALL_CPUS"]
+                )
+                lpath.unlink()
+
+        return lap, log, sob, hbt
 
     def apply_kernel(self, kernel: np.ndarray, out_path: Path) -> Path:
         out_path = Path(out_path)

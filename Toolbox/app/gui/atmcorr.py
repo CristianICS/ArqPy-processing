@@ -25,7 +25,21 @@ def run_job(img_folder, out_folder, sg_values):
                              Please switch it to a valid one.")
 
         atm_type = sg_values["-ATM-"]
+
+        try:
+            scale = int(sg_values["-SCALE-"])
+        except:
+            raise ValueError(
+                "The provided scale value must be an integer number.")
         
+        if scale < 0:
+            raise ValueError("The scale value must be positive.")
+        elif scale > 0:
+            scale_to_integer = True
+        elif scale == 0:
+            scale = None
+            scale_to_integer = False
+         
         print(f"Running atmospheric correction on: {img_folder.stem}")
 
         for img_type, img_path in image.get_images().items():
@@ -42,7 +56,7 @@ def run_job(img_folder, out_folder, sg_values):
                     img_path,                   # src
                     cutlineDSName=clip_path,
                     cropToCutline=True,
-                    dstNodata=0,
+                    dstNodata=-9999,
                     multithread=True,
                     creationOptions=["TILED=YES","COMPRESS=DEFLATE","PREDICTOR=2"],
                     warpOptions=["NUM_THREADS=ALL_CPUS"]
@@ -83,15 +97,15 @@ def run_job(img_folder, out_folder, sg_values):
                     sensor=params,
                     out=OutputSpec(
                         dtype="float32",
-                        nodata=0,
-                        scale=None,
+                        nodata=-9999,
+                        scale=scale,
                         compress="DEFLATE",
                         predictor=2,
                         blocksize=512,
                         tiled=True,
                         cog=True),
                     build_overviews=True,
-                    scale_to_int=True
+                    scale_to_int=scale_to_integer
                 )
 
                 if clip_path != Path(""):
@@ -149,6 +163,19 @@ def main():
             readonly=True,
             size=(20, 1)
         )],
+
+        # Scale image
+        [sg.Text("Scale")],
+        [sg.Text(
+            "Apply a constant to export image with integer values",
+            font=("Arial", 10, "italic")
+        )],
+        [sg.Text(
+            "Tap 0 to skip.",
+            font=("Arial", 10, "italic")
+        )],
+        [sg.Input(default_text='0', key='-SCALE-')],
+
 
         [sg.Button("Run"), sg.Button("Exit")],
         [sg.Output(size=(80, 20))]

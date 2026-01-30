@@ -23,11 +23,18 @@ def run_job(values):
             else:
                 return FileNotFoundError(str(out_folder))
         
+        clip_path = Path(values.get("-CLIP_VECTOR-", ""))
+        if not clip_path.exists():
+                sg.popup_ok("The vector folder does not exist.\
+                             Please switch it to a valid one.")
+        if clip_path == Path(""):
+            clip_path = False
+
         # Get band index
         band = int(values["-BAND-"])
 
         hp = GDALHighPassFilter(img_path, band_index=band)
-        lap, log, sob, hb = hp.run_all(out_folder / img_path.stem)
+        lap, log, sob, hb = hp.run_all(out_folder / img_path.stem, clip_path)
 
     except Exception as e:
         return e
@@ -53,8 +60,23 @@ def main():
         [sg.Text("Band index (1-based). Default: 1", font=("Arial", 10, "italic"))],
         [sg.Input(key="-BAND-", default_text="1")],
         [sg.Text("Select folder to store the results:")],
-        [sg.Input(key="-OUT-"), sg.FolderBrowse()],
         [sg.Text("Leave it blank if you want to autocreate it", font=("Arial", 10, "italic"))],
+        [sg.Input(key="-OUT-"), sg.FolderBrowse()],
+        
+        # Clip operation
+        # Vector layer path
+        [sg.Text("Vector layer to perform a clip operation:")],
+        [sg.Text("Leave it blank to skip", font=("Arial", 10, "italic"))],
+        [
+            sg.Input(key="-CLIP_VECTOR-",),
+            sg.FileBrowse(
+                file_types=(
+                    ("Vector files", "*.shp;*.gpkg;*.geojson;*.kml"),
+                    ("All files", "*.*"),
+                )
+            )
+        ],
+
         [sg.Button("Run"), sg.Button("Exit")],
         [sg.Output(size=(80, 20))]
     ]

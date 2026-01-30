@@ -1,5 +1,5 @@
 from pathlib import Path
-
+from osgeo import gdal
 from spectral_indices import Indices
 
 import PySimpleGUI as sg
@@ -22,6 +22,13 @@ def run_job(values):
                 out_folder.mkdir(exist_ok=True)
             else:
                 return FileNotFoundError(str(out_folder))
+            
+        clip_path = Path(values.get("-CLIP_VECTOR-", ""))
+        if not clip_path.exists():
+                sg.popup_ok("The vector folder does not exist.\
+                             Please switch it to a valid one.")
+        if clip_path == Path(""):
+            clip_path = False
 
         if values["-SENSOR-"] == "WV3":
             band_pos = [1, 2, 3, 4, 5, 6, 7, 8]
@@ -44,7 +51,9 @@ def run_job(values):
                 index_key,
                 img_path,
                 band_pos, band_keys, out_folder,
-                creation_opts=co)
+                clip_layer_path = clip_path,
+                creation_opts=co
+            )
 
     except Exception as e:
         return e
@@ -61,8 +70,23 @@ def main():
         [sg.Text("Input image:")],
         [sg.Input(key="-IMG-"), sg.FileBrowse()],
         [sg.Text("Select folder to store the results:")],
-        [sg.Input(key="-OUT-"), sg.FolderBrowse()],
         [sg.Text("Leave it blank if you want to autocreate it", font=("Arial", 10, "italic"))],
+        [sg.Input(key="-OUT-"), sg.FolderBrowse()],
+
+        # Clip operation
+        # Vector layer path
+        [sg.Text("Vector layer to perform a clip operation:")],
+        [sg.Text("Leave it blank to skip", font=("Arial", 10, "italic"))],
+        [
+            sg.Input(key="-CLIP_VECTOR-",),
+            sg.FileBrowse(
+                file_types=(
+                    ("Vector files", "*.shp;*.gpkg;*.geojson;*.kml"),
+                    ("All files", "*.*"),
+                )
+            )
+        ],
+
         [sg.Text("Sensor"), sg.Combo(
             ["WV3", "LEGION"],
             key="-SENSOR-",

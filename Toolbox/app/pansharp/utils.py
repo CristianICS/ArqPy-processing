@@ -195,6 +195,8 @@ def bayesian(mul_img_path, pan_img_path, out_path):
         "gdal_translate",
         str(out_temp_path),
         str(out_path),
+        # Match the OTB fillnodata value
+        "-a_nodata", "0",
         "-of", "COG",
         "-co", "COMPRESS=DEFLATE",
         "-co", "PREDICTOR=2",

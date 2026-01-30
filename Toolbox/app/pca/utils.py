@@ -10,7 +10,51 @@ otb_env = Path(os.environ.get("CONDA_PREFIX"), OTB_FOLDER)
 otb_exe = Path(otb_env, "bin", "otbApplicationLauncherCommandLine.exe")
 
 class PCA:
-    
+
+    def load_combis_from_csv(combi_path: str | Path) -> dict:
+        """
+        Load combinations from a CSV created by combis() and reconstruct
+        the original dictionary format.
+
+        Parameters
+        ----------
+        combi_path : str
+            Path to the CSV file.
+
+        Returns
+        -------
+        dict
+            {
+                1: {'names': [...], 'pos': [...]},
+                2: {'names': [...], 'pos': [...]},
+                ...
+            }
+        """
+
+        combis_dict = {}
+
+        with open(str(combi_path), "r", newline="") as f:
+            try:
+                    
+                reader = csv.DictReader(f)
+
+                for row in reader:
+                    idx = int(row["id"])
+
+                    names = row["bands"].split("-")
+                    pos = [int(p) for p in row["positions"].split("-")]
+
+                    combis_dict[idx] = {
+                        "names": names,
+                        "pos": pos
+                    }
+            
+            except:
+                return None
+
+        return combis_dict
+
+
     def combis(band_names: list, band_keys: list, combi_path: str) -> dict:
         """
         Store all possible combinations between image bands and export a CSV:
