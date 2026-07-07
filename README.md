@@ -37,7 +37,8 @@ No installation is required beyond downloading and extracting the toolbox.
 
 1. Download the toolbox release.
 2. Extract the archive to a local directory, for example `C:\Toolbox`.
-3. Ensure that the directory structure is preserved.
+3. Extract the folders `env` and `env_mae`.
+4. Ensure that the directory structure is preserved.
 
 The toolbox includes all required Python environments and external dependencies.
 
