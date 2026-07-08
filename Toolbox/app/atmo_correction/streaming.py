@@ -313,12 +313,9 @@ def correct_raster_streaming(
 
                     # Put calibrated values back into full output array
                     out_arr[valid] = out_valid
-                else:
-                    # No valid data at all
-                    str_func = None
-
-                if bidx not in str_formulas:
-                    str_formulas[bidx] = str_func
+                    
+                    if bidx not in str_formulas.keys():
+                        str_formulas[bidx] = str_func
 
                 # Optional scaling (out.scale)
                 if has_valid and getattr(out, "scale", None) is not None:
@@ -391,10 +388,10 @@ def correct_raster_streaming(
         outfile.unlink()
     
     # Write logs 
-    for i in range(len(str_formulas)):
+    for i, (b_idx, str_formula) in enumerate(str_formulas.items()):
         write_log(
             sensor.bands[i],
-            str_formulas[i + 1],
-            i + 1,
+            str_formula,
+            b_idx,
             log_path
         )
