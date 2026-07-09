@@ -93,60 +93,64 @@ class GDALHighPassFilter:
     # Public API
     # -------------------------
     def run_all(
-        self, out_prefix: Path, clip_layer_path: str|bool = False
-    ) -> Tuple[Path, Path, Path, Path]:
+        self, out_prefix: Path, clip_layer_path: str | bool = False
+    ) -> Tuple[Path, Path, Path, Path, Path]:
         """
         Compute:
           - laplacian
           - log5
           - sobel magnitude
           - highboost
+          - GLCM local contrast high-pass texture response
 
         Returns output paths in that order.
         """
-        if clip_layer_path:
-            sfx = "_temp"
+        sfx = "_temp" if clip_layer_path else ""
 
         out_prefix = Path(out_prefix)
         out_prefix.parent.mkdir(parents=True, exist_ok=True)
 
         # Create output names and paths
-        lap_name = out_prefix.name + f"_laplacian{sfx}.tif"
-        lap_path = out_prefix.with_name(lap_name)
-        log_name = out_prefix.name + f"_log5{sfx}.tif"
-        log_path = out_prefix.with_name(log_name)
-        sob_name = out_prefix.name + f"_sobel_mag{sfx}.tif"
-        sob_path = out_prefix.with_name(sob_name)
-        hbt_name = out_prefix.name + f"_highboost{sfx}.tif"
-        hbt_path = out_prefix.with_name(hbt_name)
+        lap_path = out_prefix.with_name(out_prefix.name + f"_laplacian{sfx}.tif")
+        log_path = out_prefix.with_name(out_prefix.name + f"_log5{sfx}.tif")
+        sob_path = out_prefix.with_name(out_prefix.name + f"_sobel_mag{sfx}.tif")
+        hbt_path = out_prefix.with_name(out_prefix.name + f"_highboost{sfx}.tif")
+        glcm_path = out_prefix.with_name(out_prefix.name + f"_glcm_contrast{sfx}.tif")
 
         lap = self.apply_kernel(HighPassKernels.LAPLACIAN_4N, lap_path)
         log = self.apply_kernel(HighPassKernels.LOG_5, log_path)
         sob = self.apply_sobel_magnitude(sob_path)
         hbt = self.apply_kernel(HighPassKernels.HIGHBOOST_3, hbt_path)
+        glcm = self.apply_glcm_contrast_highpass(glcm_path)
 
         if clip_layer_path:
-            for lpath in [lap_path, log_path, sob_path, hbt_path]:
+            for lpath in [lap_path, log_path, sob_path, hbt_path, glcm_path]:
                 clip_out = lpath.with_name(lpath.name.replace(sfx, ""))
                 co = [
                     "COMPRESS=DEFLATE",
-                    "PREDICTOR=3", # Better for floats
-                    "BIGTIFF=IF_SAFER"
+                    "PREDICTOR=3",  # Better for floats
+                    "BIGTIFF=IF_SAFER",
                 ]
 
                 gdal.Warp(
-                    clip_out,              # dst
-                    lpath,                   # src
+                    clip_out,
+                    lpath,
                     cutlineDSName=clip_layer_path,
                     cropToCutline=True,
                     multithread=True,
-                    format = "COG",
+                    format="COG",
                     creationOptions=co,
-                    warpOptions=["NUM_THREADS=ALL_CPUS"]
+                    warpOptions=["NUM_THREADS=ALL_CPUS"],
                 )
                 lpath.unlink()
 
-        return lap, log, sob, hbt
+            lap = lap.with_name(lap.name.replace(sfx, ""))
+            log = log.with_name(log.name.replace(sfx, ""))
+            sob = sob.with_name(sob.name.replace(sfx, ""))
+            hbt = hbt.with_name(hbt.name.replace(sfx, ""))
+            glcm = glcm.with_name(glcm.name.replace(sfx, ""))
+
+        return lap, log, sob, hbt, glcm
 
     def apply_kernel(self, kernel: np.ndarray, out_path: Path) -> Path:
         out_path = Path(out_path)
@@ -219,6 +223,60 @@ class GDALHighPassFilter:
 
         return out_path
 
+    def apply_glcm_contrast_highpass(
+        self,
+        out_path: Path,
+        window_size: int = 7,
+        levels: int = 32,
+        offsets: Tuple[Tuple[int, int], ...] = ((0, 1), (1, 0), (1, 1), (1, -1)),
+    ) -> Path:
+        """
+        Compute a local GLCM-contrast high-pass texture response.
+
+        This is a co-occurrence-matrix-based high-pass measure. For each local
+        window, it computes the GLCM contrast feature:
+
+            contrast = sum(P[i, j] * (i - j)^2)
+
+        Instead of explicitly building one GLCM per pixel, this implementation
+        computes the mathematically equivalent local mean of squared gray-level
+        differences for the requested offsets. This is much faster and more
+        practical for large rasters.
+
+        Args:
+            out_path: Output raster path.
+            window_size: Odd local window size, e.g. 5, 7, 9, 11.
+            levels: Number of quantized gray levels used by the GLCM logic.
+            offsets: Pixel offsets as (dy, dx), e.g. horizontal, vertical,
+                and diagonal co-occurrence directions.
+        """
+        if window_size < 3 or window_size % 2 == 0:
+            raise ValueError("window_size must be an odd integer >= 3")
+        if levels < 2:
+            raise ValueError("levels must be >= 2")
+        if not offsets:
+            raise ValueError("offsets must contain at least one (dy, dx) pair")
+
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        vmin, vmax = self._valid_minmax(self._band)
+        if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax <= vmin:
+            raise RuntimeError("Could not compute a valid min/max range for GLCM quantization")
+
+        out_ds = self._create_output_like(out_path, dtype=gdal.GDT_Float32)
+        self._glcm_contrast_chunked(
+            self._band,
+            out_ds,
+            window_size=window_size,
+            levels=levels,
+            offsets=offsets,
+            vmin=float(vmin),
+            vmax=float(vmax),
+        )
+        out_ds = None
+        return out_path
+
     # -------------------------
     # Internals
     # -------------------------
@@ -243,6 +301,143 @@ class GDALHighPassFilter:
         if self.nodata is not None:
             out_ds.GetRasterBand(1).SetNoDataValue(self.nodata)
         return out_ds
+
+    def _valid_minmax(self, band: gdal.Band) -> Tuple[float, float]:
+        """Chunked min/max that excludes NoData, including NaN NoData."""
+        xsize, ysize = band.XSize, band.YSize
+        bs = self.block
+        nd = self.nodata
+        vmin = np.inf
+        vmax = -np.inf
+
+        for y0 in range(0, ysize, bs):
+            y1 = min(y0 + bs, ysize)
+            for x0 in range(0, xsize, bs):
+                x1 = min(x0 + bs, xsize)
+                arr = band.ReadAsArray(x0, y0, x1 - x0, y1 - y0).astype(np.float32)
+
+                valid = np.isfinite(arr)
+                if nd is not None:
+                    if np.isnan(nd):
+                        valid &= ~np.isnan(arr)
+                    else:
+                        valid &= arr != nd
+
+                if np.any(valid):
+                    vals = arr[valid]
+                    vmin = min(vmin, float(np.min(vals)))
+                    vmax = max(vmax, float(np.max(vals)))
+
+        return vmin, vmax
+
+    @staticmethod
+    def _box_sum_same(arr: np.ndarray, radius: int) -> np.ndarray:
+        """Square-window sum with constant-zero padding, returned at input shape."""
+        win = 2 * radius + 1
+        padded = np.pad(arr, ((radius, radius), (radius, radius)), mode="constant", constant_values=0)
+        integral = np.pad(padded.cumsum(axis=0).cumsum(axis=1), ((1, 0), (1, 0)), mode="constant")
+        return (
+            integral[win:, win:]
+            - integral[:-win, win:]
+            - integral[win:, :-win]
+            + integral[:-win, :-win]
+        )
+
+    def _glcm_contrast_chunked(
+        self,
+        band: gdal.Band,
+        out_ds: gdal.Dataset,
+        window_size: int,
+        levels: int,
+        offsets: Tuple[Tuple[int, int], ...],
+        vmin: float,
+        vmax: float,
+    ) -> None:
+        radius = window_size // 2
+        max_dy = max(abs(dy) for dy, _ in offsets)
+        max_dx = max(abs(dx) for _, dx in offsets)
+        margin_y = radius + max_dy
+        margin_x = radius + max_dx
+
+        xsize, ysize = band.XSize, band.YSize
+        out_band = out_ds.GetRasterBand(1)
+        bs = self.block
+        nd = self.nodata
+        scale = (levels - 1) / (vmax - vmin)
+
+        for y0 in range(0, ysize, bs):
+            y1 = min(y0 + bs, ysize)
+            for x0 in range(0, xsize, bs):
+                x1 = min(x0 + bs, xsize)
+
+                rx0 = max(x0 - margin_x, 0)
+                ry0 = max(y0 - margin_y, 0)
+                rx1 = min(x1 + margin_x, xsize)
+                ry1 = min(y1 + margin_y, ysize)
+
+                arr = band.ReadAsArray(rx0, ry0, rx1 - rx0, ry1 - ry0).astype(np.float32)
+
+                valid = np.isfinite(arr)
+                if nd is not None:
+                    if np.isnan(nd):
+                        valid &= ~np.isnan(arr)
+                    else:
+                        valid &= arr != nd
+
+                q = np.zeros(arr.shape, dtype=np.int16)
+                q[valid] = np.clip(
+                    np.rint((arr[valid] - vmin) * scale),
+                    0,
+                    levels - 1,
+                ).astype(np.int16)
+
+                contrast_sum = np.zeros(arr.shape, dtype=np.float32)
+                contrast_count = np.zeros(arr.shape, dtype=np.float32)
+                h, w = arr.shape
+
+                for dy, dx in offsets:
+                    y_src0 = max(0, -dy)
+                    y_src1 = min(h, h - dy)
+                    x_src0 = max(0, -dx)
+                    x_src1 = min(w, w - dx)
+
+                    y_dst0 = y_src0 + dy
+                    y_dst1 = y_src1 + dy
+                    x_dst0 = x_src0 + dx
+                    x_dst1 = x_src1 + dx
+
+                    pair_diff = np.zeros(arr.shape, dtype=np.float32)
+                    pair_valid = np.zeros(arr.shape, dtype=np.float32)
+
+                    src = q[y_src0:y_src1, x_src0:x_src1]
+                    dst = q[y_dst0:y_dst1, x_dst0:x_dst1]
+                    ok = valid[y_src0:y_src1, x_src0:x_src1] & valid[y_dst0:y_dst1, x_dst0:x_dst1]
+
+                    pair_diff[y_src0:y_src1, x_src0:x_src1] = np.where(
+                        ok,
+                        (src.astype(np.float32) - dst.astype(np.float32)) ** 2,
+                        0.0,
+                    )
+                    pair_valid[y_src0:y_src1, x_src0:x_src1] = ok.astype(np.float32)
+
+                    contrast_sum += self._box_sum_same(pair_diff, radius)
+                    contrast_count += self._box_sum_same(pair_valid, radius)
+
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    glcm_contrast = np.where(contrast_count > 0, contrast_sum / contrast_count, 0.0)
+
+                # Mark center pixels that are NoData as NoData in the output.
+                if nd is not None:
+                    glcm_contrast = np.where(valid, glcm_contrast, nd).astype(np.float32)
+                else:
+                    glcm_contrast = glcm_contrast.astype(np.float32)
+
+                oy0 = y0 - ry0
+                ox0 = x0 - rx0
+                out_chunk = glcm_contrast[oy0:oy0 + (y1 - y0), ox0:ox0 + (x1 - x0)]
+                out_band.WriteArray(out_chunk, xoff=x0, yoff=y0)
+
+        out_band.FlushCache()
 
     def _convolve_chunked(self, band: gdal.Band, kernel: np.ndarray, out_ds: gdal.Dataset) -> None:
         """
