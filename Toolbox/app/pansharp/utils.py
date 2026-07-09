@@ -116,8 +116,12 @@ LEGION = Sensor("LEGION", [])
 SENSORS = {"WV3": WV3, "LEGION": LEGION}
 
 def brovey(
-        sensor: Sensor, mul_img_path, pan_img_path, out_path):
-    """"""
+    sensor: Sensor,
+    mul_img_path,
+    pan_img_path,
+    out_path
+):
+    """Run weighted Brovey pansharpen operation"""
     # Align the MUL image with PAN dimensions
     mul_temp_img_name = mul_img_path.name.replace(".tif", "_temp.tif")
     mul_temp_path = mul_img_path.parent / mul_temp_img_name
@@ -160,8 +164,10 @@ def brovey(
     mul_temp_path.unlink()
     out_path_temp.unlink()
 
-def bayesian(mul_img_path, pan_img_path, out_path):
-    """OTB CLI command for Bayesian pansharpening using the Pansharpening application"""
+def bayesian(mul_img_path, pan_img_path, out_path, bayes_lambda=0.995):
+    """
+    OTB CLI command for Bayesian pansharpening using the Pansharpening application
+        """
     # Align the MUL image with PAN dimensions
     mul_temp_img_name = mul_img_path.name.replace(".tif", "_temp.tif")
     mul_temp_path = mul_img_path.parent / mul_temp_img_name
@@ -171,8 +177,8 @@ def bayesian(mul_img_path, pan_img_path, out_path):
         "Superimpose",
         "-inr", str(pan_img_path),
         "-inm", str(mul_img_path),
-        "-interpolator", "linear",
-        "-out", f"{mul_temp_path}?{co}"
+        "-interpolator", "nn",
+        "-out", f"{mul_temp_path}?{co}", "float"
     ], check=True)
 
     # Compute Bayesian pansharpening
@@ -184,9 +190,9 @@ def bayesian(mul_img_path, pan_img_path, out_path):
         "Pansharpening",
         "-inp", str(pan_img_path),
         "-inxs", str(mul_temp_path),
-        "-out", str(out_temp_path),
+        "-out", str(out_temp_path), "float",
         "-method", "bayes",
-        "-method.bayes.lambda", "0.995",
+        "-method.bayes.lambda", str(bayes_lambda),
         "-method.bayes.s", "1"
     ], check=True)
 
@@ -196,7 +202,7 @@ def bayesian(mul_img_path, pan_img_path, out_path):
         str(out_temp_path),
         str(out_path),
         # Match the OTB fillnodata value
-        "-a_nodata", "0",
+        "-a_nodata", "-9999",
         "-of", "COG",
         "-co", "COMPRESS=DEFLATE",
         "-co", "PREDICTOR=2",

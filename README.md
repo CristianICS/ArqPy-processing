@@ -77,6 +77,77 @@ Each batch file automatically activates the appropriate environment and routes t
 * Operating system: **Windows 11**
 * No administrator privileges required
 
+## Known issues
+
+### Pansharpening problem
+
+Running the Bayes pansharpening technique with original reflectance values and the default `lambda` parameter may produce the following issue:
+
+```text
+All pansharpened bands have nearly identical min, max, mean, and standard deviation.
+```
+
+This is a strong signal that the multispectral spectral information is being overwhelmed.
+
+The PAN statistics show valid reflectance-scale values:
+
+```text
+PAN: 0–0.731
+mean: 0.078
+nodata: -9999
+```
+
+However, the pansharpened output may show values such as:
+
+```text
+output min:  about -1300
+output max:  about 300
+output mean: about 2.4
+```
+
+The most likely cause is that OTB Bayesian pansharpening is not stable with reflectance-scale inputs when using the current Bayesian parameters.
+
+More specifically, the default `lambda = 0.995` is probably too high for data in the `0–1` range.
+
+#### Why this can happen
+
+The Bayesian method does not only inject spatial detail. It solves an optimization problem involving the PAN image, the multispectral image, and a regularization term.
+
+With reflectance-scale values, the numerical magnitudes are small:
+
+```text
+0.02
+0.08
+0.30
+```
+
+If the method internally behaves better with image-like digital numbers, for example:
+
+```text
+200
+800
+3000
+```
+
+then the same `lambda` value can behave very differently.
+
+With the default value:
+
+```text
+-method.bayes.lambda 0.995
+```
+
+the model can become numerically dominated by the PAN constraint. As a result, the output bands may collapse toward the same PAN-driven structure, and the solver may produce large positive and negative artifacts.
+
+#### Recommendations
+
+For archaeological crop mark detection, it is recommended to work with integer reflectance values scaled by a factor of `10000`.
+
+Use this scaling factor inside the `atmcorr.bat` tool.
+
+If you want to work with the original reflectance values in the `0–1` range, reduce the `lambda` value when using the Bayesian pansharpening method. A value around `0.1` is a reasonable starting point
+
+
 ## Environment construction for developers
 
 The release includes the complete application folder, together with the required environments.

@@ -35,13 +35,15 @@ def run_job(values):
         
         method = values["-ALGORITHM-"]
         if method == "Bayesian":
+            bayes_lambda = float(values["-LAMBDA-"])
+
             print("Starting Bayesian pansharpening...")
             out_img_name = mul_img_path.name.replace(
                 ".tif",
                 f"_bayes{img_suffix}.tif"
             )
             out_img_path = out_folder / out_img_name
-            bayesian(mul_img_path, pan_img_path, out_img_path)
+            bayesian(mul_img_path, pan_img_path, out_img_path, bayes_lambda)
 
         else:
             # Perform weighted Brovey pansharpening
@@ -134,6 +136,13 @@ def main():
             size=(20, 1)
         )],
 
+        [sg.Text("If Bayesian algorithm is selected, define a valid 'lambda' parameter.")],
+        [sg.Text(
+            "For integer reflectance values (constant applied) use a higher value than for original reflectance (0-1) values",
+            font=("Arial", 9, "italic")
+        )],
+        [sg.Input(default_text='0.995', key='-LAMBDA-')],
+
         [sg.Button("Run"), sg.Button("Exit")],
         [sg.Output(size=(80, 20))]
     ]
@@ -158,6 +167,15 @@ def main():
             
             if not values["-OUT-"]:
                 values["-OUT-"] = str(Path(values["-MUL-"]).parent)
+
+            try:
+                lambda_val = float(values['-LAMBDA-'])
+                if lambda_val > 1 or lambda_val < 0:
+                    sg.popup("The valid range of Bayes' lambda parameter is 0-1")
+                    continue
+            except:
+                sg.popup("Only float numbers between 0 and 1 are allowed")
+                continue
 
             # Disable Run button and show a status message
             window["Run"].update(disabled=True)
