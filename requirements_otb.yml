@@ -1,10 +1,9 @@
-name: arcpy_otb
+name: arqpy_otb
 channels:
   - conda-forge
 dependencies:
   - python=3.10
   - gdal
   - pysimplegui
-  - conda-pack
   - numpy=1.26.4
   - numexpr
