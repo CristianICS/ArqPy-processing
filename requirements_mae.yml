@@ -1,12 +1,17 @@
+# To run the Notebooks
 name: mae
 channels:
   - conda-forge
 dependencies:
   - python
+  - rasterio
   - timm
   - einops
   - scikit-learn
+  - matplotlib
   - pytorch
   - torchvision
+  - ipykernel
+  - ipywidgets
   - conda-pack
   - pysimplegui
