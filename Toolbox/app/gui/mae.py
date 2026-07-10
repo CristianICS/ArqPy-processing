@@ -1,7 +1,7 @@
 from pathlib import Path
 import shutil
 import PySimpleGUI as sg
-from mae import tilling, compute_mae_batch, define_model
+from mae import tilling, compute_mae_batch, define_model, clip_mae
 
 
 def run_job(values):
@@ -11,13 +11,26 @@ def run_job(values):
         model, device = define_model()
 
         imgs_folder = Path(values["-FOLDER-"])
+
+        # Define the output folder
+        out_folder = imgs_folder / "mae_saliency"
+        if not out_folder.exists():
+            out_folder.mkdir()
+
         # Define the csv path to store MAE statistics
-        stats_path = Path(imgs_folder, "mae_stats.csv")
+        stats_path = Path(out_folder, "mae_stats.csv")
         
+        clip_path = Path(values.get("-CLIP_VECTOR-", ""))
+        if not clip_path.exists():
+                sg.popup_ok("The vector folder does not exist.\
+                             Please switch it to a valid one.")
+        if clip_path == Path(""):
+            clip_path = False
+
         for img_path in imgs_folder.glob("*.tif"):
-            # Output name for the MAE's heatmap
+            # Output name for the MAE's saliency map
             out_name = img_path.stem + "_mae.tif"
-            out_path = img_path.parent / out_name
+            out_path = out_folder / out_name
 
             if out_path.exists() or img_path.stem.endswith("_mae"):
                 continue
@@ -27,6 +40,10 @@ def run_job(values):
             tiles_meta, tiles_folder = tilling(img_path)
 
             compute_mae_batch(tiles_meta, out_path, stats_path, model, device)
+
+            if clip_path:
+                print("Perform clip operation...")
+                clip_mae(out_path, clip_path)
 
             # Remove the temporal folder with the tiles
             shutil.rmtree(tiles_folder)
@@ -44,13 +61,31 @@ def main():
         title,
         # Description
         [sg.Text(
-            "Use the Masked Autoencoder technique to detect regions and"\
+            "Use the Masked Autoencoder technique to detect regions and "\
             "images with higher probabilities of containing crop marks."
+        )],
+
+        [sg.Text(
+            "Extract the MAE saliency values for all the GeoTIFF images "\
+            "inside the input folder."
         )],
 
         # Input and output placeholders
         [sg.Text("Input folder:")],
         [sg.Input(key="-FOLDER-"), sg.FolderBrowse()],
+        # Clip operation
+        # Vector layer path
+        [sg.Text("Vector layer to perform a clip operation:")],
+        [sg.Text("Leave it blank to skip", font=("Arial", 10, "italic"))],
+        [
+            sg.Input(key="-CLIP_VECTOR-",),
+            sg.FileBrowse(
+                file_types=(
+                    ("Vector files", "*.shp;*.gpkg;*.geojson;*.kml"),
+                    ("All files", "*.*"),
+                )
+            )
+        ],
         [sg.Button("Run"), sg.Button("Exit")],
         [sg.Output(size=(80, 20))]
     ]

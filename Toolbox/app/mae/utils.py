@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 import csv
 import numpy as np
 import torch
@@ -6,11 +7,12 @@ import torchvision.transforms as T
 import torch.nn as nn
 import torch.nn.functional as F
 import timm
+import fiona
 import rasterio
-from rasterio.windows import Window
 from rasterio.merge import merge
-from rasterio.enums import Resampling
-
+from rasterio.windows import Window
+from rasterio.mask import mask
+from rasterio.warp import transform_geom
 
 def tilling(
     img_path: Path,
@@ -370,3 +372,47 @@ def merge_mae_tiles(folder, mae_suffix, out_path):
     finally:
         for s in srcs:
             s.close()
+
+
+def clip_mae(inp_path: Path, clip_layer_path: Path) -> None:
+    """Clip a raster in place using a vector cutline."""
+    temp_path = inp_path.with_stem(
+        f"{inp_path.stem}_temp_{uuid4().hex}"
+    )
+
+    try:
+        with rasterio.open(inp_path) as src:
+            with fiona.open(clip_layer_path) as clip_layer:
+                geometries = [
+                    transform_geom(
+                        clip_layer.crs,
+                        src.crs,
+                        feature["geometry"],
+                    )
+                    for feature in clip_layer
+                ]
+
+            clipped, transform = mask(
+                src,
+                geometries,
+                crop=True,
+            )
+
+            profile = src.profile.copy()
+            profile.update(
+                driver="COG",
+                height=clipped.shape[1],
+                width=clipped.shape[2],
+                transform=transform,
+                compress="DEFLATE",
+                predictor=3,
+                BIGTIFF="IF_SAFER",
+            )
+
+            with rasterio.open(temp_path, "w", **profile) as dst:
+                dst.write(clipped)
+
+        temp_path.replace(inp_path)
+
+    finally:
+        temp_path.unlink(missing_ok=True)
