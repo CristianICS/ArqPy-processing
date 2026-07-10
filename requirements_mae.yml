@@ -5,6 +5,7 @@ channels:
 dependencies:
   - python
   - rasterio
+  - gdal
   - timm
   - einops
   - scikit-learn
