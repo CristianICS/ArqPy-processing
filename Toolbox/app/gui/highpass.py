@@ -34,7 +34,7 @@ def run_job(values):
         band = int(values["-BAND-"])
 
         hp = GDALHighPassFilter(img_path, band_index=band)
-        lap, log, sob, hb = hp.run_all(out_folder / img_path.stem, clip_path)
+        hp.run_all(out_folder / img_path.stem, clip_path)
 
     except Exception as e:
         return e
