@@ -2,30 +2,47 @@
 
 This toolbox generates a series of products derived from remote sensing images for archaeological analysis, with a particular focus on crop mark detection. It also includes an option to apply a Masked Autoencoder (MAE) to identify zones with a higher probability of containing crop marks.
 
+Furthermore, the tool includes two additional functions: one to detect crop marks using [Meta's SAM 3 model](https://github.com/facebookresearch/sam3) (`sam3_detection.bat`) and to do a pansharpening operation (`pansharpen_dl.bat`) based in convolutional neural networks included in the [Z-PNN repository](https://github.com/matciotola/Z-PNN).
+
+These two tools require additional customization. See [section Additional tools](#additional-tools).
+
+## Introduction
+
 The toolbox is distributed as a self-contained package and **does not require Conda, Miniforge, or manual environment setup by the end user**.
 
 The available operations should be executed in the following recommended order:
 
-1. `atmcorr` – atmospheric correction
-2. `pansharpening` – spatial–spectral fusion
-3. `pca` – principal component analysis
-4. `spectral_indices` – spectral index computation
-5. `highpass` – spatial filtering
-6. `mae` – Masked Autoencoder-based analysis
+1. `atmcorr` - atmospheric correction
+2. `pansharpening` - spatial-spectral fusion
+3. `pca` - principal component analysis
+4. `spectral_indices` - spectral index computation
+5. `highpass` - spatial filtering
+6. `mae` - Masked Autoencoder-based analysis
+
+The two additional operations are:
+
+7. `sam3_cropmarks` - SAM 3 model to find crop marks in RGB images
+8. `pansharpening_dl` - spatial-spectral fusion based on Deep Learning models
 
 Each operation provides a graphical user interface for configuring the parameters required for execution.
+
+## Tool instructions
+
+The [ArqPy tool guides](docs/tools/README.md) provide a separate, archaeologist-oriented manual for every launcher. Each guide explains all GUI options and defaults, input requirements, processing behaviour, output filenames, interpretation, and important limitations.
 
 ## Available sensors
 
 Atmospheric correction is currently supported for the following sensors:
 
-* GEOSAT
 * WorldView-3 (WV3)
 * WorldView LEGION-06
+
 
 The `pca`, `pansharpening`, and `spectral_indices` operations are available only for WV3 and LEGION sensors.
 
 The `highpass` and `mae` operations are available for any image provided in GeoTIFF format.
+
+GeoEye1 (GE1) is only supported for `pansharpening_cnn` tool.
 
 ## Data
 
@@ -54,6 +71,7 @@ Toolbox
 |  |
 |  |- OTB-9.1.1-Win64  (Orfeo ToolBox binaries)
 |- env_mae    (packed Python environment for MAE analysis)
+|- Z-PNN      (modified Z-PNN repository to match the environment)
 |- atmcorr.bat
 |- ...
 |- README.md
@@ -61,7 +79,69 @@ Toolbox
 
 ## External dependencies
 
-The toolbox relies on **Orfeo ToolBox (OTB) version 9.1.1**, which is already included in the release. No additional downloads are required.
+The default toolbox relies on **Orfeo ToolBox (OTB) version 9.1.1**, which is already included in the release. No additional downloads are required.
+
+### Additional tools
+
+There are two additional tools that has no included in the default instalation regarding their further customization. These can be used with the current toolbox, but it requires a few additional steps.
+
+#### SAM 3 segmentation
+
+`Toolbox/sam3_cropmarks.bat` launches a folder-level crop-mark segmentation
+tool based on [Meta's SAM 3 image processor](https://github.com/facebookresearch/sam3).
+
+The first step is to create and pack a separate environment from the project root:
+
+```bat
+mamba env create -f requirements_sam3.yml
+conda-pack -n sam3_cropmarks -o Toolbox/env_sam3.zip
+```
+
+SAM 3 currently needs Python 3.12, a recent PyTorch version, and a
+CUDA-compatible GPU. Extract `env_sam3.zip` as `Toolbox/env_sam3`.
+
+Before the first run, request access to the `facebook/sam3` checkpoint on Hugging Face and authenticate from the environment:
+
+```bat
+Toolbox\env_sam3\Scripts\activate.bat
+hf auth login
+```
+
+Choose browser login or paste a read-access token. Then download the checkpoint once:
+
+```bash
+hf download facebook/sam3 sam3.pt --local-dir C:\models\sam3
+```
+
+#### Z-PNN pansharpening
+
+`Toolbox/pansharpening_dl.bat` launches the WorldView/GeoEye deep-learning pansharpening methods included in the bundled [`Z-PNN` repository](https://github.com/matciotola/Z-PNN).
+
+Create and pack its separate environment from the project root in a Miniforge/Miniconda/Anaconda prompt:
+
+```bat
+mamba env create -f requirements_pnn.yml
+conda-pack -n pansharpen_dl -o Toolbox/env_pnn.zip
+```
+
+The PyTorch packages are explicitly taken from the `pytorch` channel while the scientific and GIS stack comes from `conda-forge`. This makes the file work with strict channel priority and avoids accidentally selecting conda-forge's newer CPU-only PyTorch builds. If an older Mamba version still reports an unsatisfiable environment, use flexible priority for this command only:
+
+```bat
+mamba env create -f requirements_pnn.yml --channel-priority flexible
+```
+
+> Note: This command-line option does not modify the global Conda configuration.
+
+To verify the important imports before packing the environment:
+
+```bat
+conda activate pansharpen_dl
+python -c "import torch, scipy, skimage, PySimpleGUI; from osgeo import gdal; print('Torch', torch.__version__, 'GDAL', gdal.VersionInfo())"
+```
+
+Once the conda environment is created, extract `env_pnn.zip` as `Toolbox/env_pnn`.
+
+Note: The Z-PNN repository is downloaded previously and is already inside the `Toolbox`. It has been modified to match the environment's dependencies.
 
 ## Running the toolbox
 
@@ -77,100 +157,35 @@ Each batch file automatically activates the appropriate environment and routes t
 * Operating system: **Windows 11**
 * No administrator privileges required
 
-## Known issues
+## Setting up the development environment
 
-### Pansharpening problem
+The release includes the complete application directory and all required environments.
 
-Running the Bayes pansharpening technique with original reflectance values and the default `lambda` parameter may produce the following issue:
+To reproduce the same structure, follow the steps below in a Miniforge or Miniconda terminal.
 
-```text
-All pansharpened bands have nearly identical min, max, mean, and standard deviation.
-```
-
-This is a strong signal that the multispectral spectral information is being overwhelmed.
-
-The PAN statistics show valid reflectance-scale values:
-
-```text
-PAN: 0–0.731
-mean: 0.078
-nodata: -9999
-```
-
-However, the pansharpened output may show values such as:
-
-```text
-output min:  about -1300
-output max:  about 300
-output mean: about 2.4
-```
-
-The most likely cause is that OTB Bayesian pansharpening is not stable with reflectance-scale inputs when using the current Bayesian parameters.
-
-More specifically, the default `lambda = 0.995` is probably too high for data in the `0–1` range.
-
-#### Why this can happen
-
-The Bayesian method does not only inject spatial detail. It solves an optimization problem involving the PAN image, the multispectral image, and a regularization term.
-
-With reflectance-scale values, the numerical magnitudes are small:
-
-```text
-0.02
-0.08
-0.30
-```
-
-If the method internally behaves better with image-like digital numbers, for example:
-
-```text
-200
-800
-3000
-```
-
-then the same `lambda` value can behave very differently.
-
-With the default value:
-
-```text
--method.bayes.lambda 0.995
-```
-
-the model can become numerically dominated by the PAN constraint. As a result, the output bands may collapse toward the same PAN-driven structure, and the solver may produce large positive and negative artifacts.
-
-#### Recommendations
-
-For archaeological crop mark detection, it is recommended to work with integer reflectance values scaled by a factor of `10000`.
-
-Use this scaling factor inside the `atmcorr.bat` tool.
-
-If you want to work with the original reflectance values in the `0–1` range, reduce the `lambda` value when using the Bayesian pansharpening method. A value around `0.1` is a reasonable starting point
-
-
-## Environment construction for developers
-
-The release includes the complete application folder, together with the required environments.
-
-To replicate the same structure, follow the steps below in a Miniforge or Miniconda console.
-
-Install the environments using the provided `.yml` files:
+Create the environments using the provided `.yml` files:
 
 ```bash
 mamba env create -f requirements_otb.yml
 mamba env create -f requirements_mae.yml
 ```
 
-Pack the environments and place the resulting archives inside the toolbox directory. They must be unpacked later:
+Install `conda-pack` in your base Python environment if it is not already installed:
 
 ```bash
-conda pack -n arcpy_otb -o Toolbox/env.zip
-conda pack -n mae -o Toolbox/env_mae.zip
+conda install -c conda-forge conda-pack
 ```
 
-Finally, include [Orfeo ToolBox](https://www.orfeo-toolbox.org/) inside the `env` folder.
+Package the environments and place the resulting archives in the `Toolbox` directory. These archives will need to be unpacked later:
 
-Download **OTB version 9.1.1** and place it within the toolbox directory as follows:
+```bash
+conda-pack -n arcpy_otb -o Toolbox/env.zip
+conda-pack -n mae -o Toolbox/env_mae.zip
+```
+
+Finally, add [Orfeo ToolBox](https://www.orfeo-toolbox.org/) to the `env` directory.
+
+Download **OTB version 9.1.1** and place it in the toolbox directory using the following structure:
 
 ```txt
 Toolbox
@@ -182,3 +197,7 @@ Toolbox
 |  |- ...
 |_ ...
 ```
+
+## Further improvements
+
+* Investigate how to reduce the size of the toolbox environments by including only the required packages.
