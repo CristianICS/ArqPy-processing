@@ -1,8 +1,10 @@
 from pathlib import Path
-from osgeo import gdal
-from spectral_indices import Indices
 
 import PySimpleGUI as sg
+
+from spectral_indices import Indices
+from .icon_base64 import ICON
+
 
 def run_job(values):
     """Computing spectral indices operation."""
@@ -98,7 +100,7 @@ def main():
         [sg.Output(size=(80, 20))]
     ]
 
-    window = sg.Window("Spectral indices", layout)
+    window = sg.Window("Spectral indices", layout, icon=ICON)
 
     while True:
         event, values = window.read()

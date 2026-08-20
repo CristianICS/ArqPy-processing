@@ -1,9 +1,11 @@
 from pathlib import Path
-from osgeo import gdal
-from pca import PCA
 
+from osgeo import gdal
 import subprocess
 import PySimpleGUI as sg
+
+from pca import PCA
+from .icon_base64 import ICON
 
 gdal.DontUseExceptions()
 
@@ -173,7 +175,7 @@ def main():
         [sg.Output(size=(80, 20))]
     ]
 
-    window = sg.Window("Pansharpening", layout)
+    window = sg.Window("Pansharpening", layout, icon=ICON)
 
     while True:
         event, values = window.read()

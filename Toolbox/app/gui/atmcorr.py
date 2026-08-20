@@ -1,13 +1,16 @@
 from pathlib import Path
 from osgeo import gdal
 
+import PySimpleGUI as sg
+
 from atmo_correction import OutputSpec, SensorParams
 from atmo_correction import FORMULAS
 from atmo_correction import correct_raster_streaming
 
 from sensors import WV3, LG06
 
-import PySimpleGUI as sg
+from .icon_base64 import ICON
+
 
 gdal.UseExceptions()
 
@@ -181,7 +184,7 @@ def main():
         [sg.Output(size=(80, 20))]
     ]
 
-    window = sg.Window("Atmospheric Correction", layout)
+    window = sg.Window("Atmospheric Correction", layout, icon=ICON)
 
     while True:
         event, values = window.read()

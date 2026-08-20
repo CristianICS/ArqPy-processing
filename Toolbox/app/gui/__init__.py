@@ -1,7 +1,3 @@
-"""
-Handlers to create the Graphical User Interfaces.
-"""
-
 import PySimpleGUI as sg
 
 # Create a custom theme

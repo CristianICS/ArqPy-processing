@@ -1,12 +1,26 @@
 from pathlib import Path
 import shutil
 import PySimpleGUI as sg
-from mae import tilling, compute_mae_batch, define_model, clip_mae
+
+from mae import (
+    tilling,
+    compute_mae_batch,
+    define_model,
+    clip_mae,
+    parse_mae_bands,
+    validate_source_bands,
+    compute_raster_stats,
+    update_csv
+)
+
+from .icon_base64 import ICON
 
 
 def run_job(values):
     """Computing MAE over all images inside a folder."""
     try:
+        bands = parse_mae_bands(values["-BANDS-"])
+
         # Retrieve the model
         model, device = define_model()
 
@@ -37,9 +51,16 @@ def run_job(values):
             print(f"Computing img {img_path.stem}")
 
             # Prepare the current image to perform MAE
+            validate_source_bands(img_path, bands)
             tiles_meta, tiles_folder = tilling(img_path)
 
-            compute_mae_batch(tiles_meta, out_path, stats_path, model, device)
+            compute_mae_batch(
+                tiles_meta,
+                out_path,
+                model,
+                device,
+                bands=bands,
+            )
 
             if clip_path:
                 print("Perform clip operation...")
@@ -48,8 +69,22 @@ def run_job(values):
             # Remove the temporal folder with the tiles
             shutil.rmtree(tiles_folder)
 
+            stats, _ = compute_raster_stats(out_path)
+            update_csv(stats_path, stats)
+
     except Exception as e:
         return e
+
+
+def _validate(values):
+    """Validate settings that do not require opening every source raster."""
+    if not Path(values["-FOLDER-"]).is_dir():
+        raise ValueError("Please select a valid input folder.")
+    parse_mae_bands(values["-BANDS-"])
+
+    clip_text = values.get("-CLIP_VECTOR-", "").strip()
+    if clip_text and not Path(clip_text).is_file():
+        raise ValueError("The selected vector layer does not exist.")
 
 
 def main():
@@ -73,6 +108,15 @@ def main():
         # Input and output placeholders
         [sg.Text("Input folder:")],
         [sg.Input(key="-FOLDER-"), sg.FolderBrowse()],
+        [
+            sg.Text("Bands to process (1-based, comma-separated):"),
+            sg.Input("1", key="-BANDS-", size=(12, 1)),
+        ],
+        [sg.Text(
+            "Enter one to three bands. One band is repeated across all "
+            "three model channels.",
+            font=("Arial", 10, "italic"),
+        )],
         # Clip operation
         # Vector layer path
         [sg.Text("Vector layer to perform a clip operation:")],
@@ -90,7 +134,7 @@ def main():
         [sg.Output(size=(80, 20))]
     ]
 
-    window = sg.Window("MAE detection", layout)
+    window = sg.Window("MAE detection", layout, icon=ICON)
 
     while True:
         event, values = window.read()
@@ -99,9 +143,10 @@ def main():
         if event in (sg.WINDOW_CLOSED, "Exit"):
             break
         if event == "Run":
-            
-            if not values["-FOLDER-"]:
-                sg.popup_ok(f"Please select a valid folder.")
+            try:
+                _validate(values)
+            except (TypeError, ValueError) as exc:
+                sg.popup_ok("Invalid settings", str(exc))
                 continue
 
             # Disable Run button and show a status message

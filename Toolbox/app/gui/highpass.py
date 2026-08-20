@@ -1,8 +1,10 @@
 from pathlib import Path
 
-from highpass.utils import GDALHighPassFilter
-
 import PySimpleGUI as sg
+
+from highpass.utils import GDALHighPassFilter
+from .icon_base64 import ICON
+
 
 def run_job(values):
     """Computing high pass filters over one image band."""
@@ -81,7 +83,7 @@ def main():
         [sg.Output(size=(80, 20))]
     ]
 
-    window = sg.Window("Highpass filters", layout)
+    window = sg.Window("Highpass filters", layout, icon=ICON)
 
     while True:
         event, values = window.read()

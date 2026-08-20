@@ -1,44 +1,144 @@
 from pathlib import Path
 from uuid import uuid4
-import csv
+
 import numpy as np
 import torch
-import torchvision.transforms as T
-import torch.nn as nn
 import torch.nn.functional as F
 import timm
 import fiona
 import rasterio
-from rasterio.merge import merge
+from affine import Affine
 from rasterio.windows import Window
 from rasterio.mask import mask
 from rasterio.warp import transform_geom
+
+DEFAULT_TILE_OVERLAP = 128
+DEFAULT_HANN_MIN_WEIGHT = 1e-3
+GTIFF_BLOCK_SIZE = 256
+
+
+def _set_tiled_gtiff_profile(profile: dict, predictor: int) -> None:
+    """Set valid tiled-GeoTIFF options without inherited block dimensions."""
+    profile.pop("blockxsize", None)
+    profile.pop("blockysize", None)
+    profile.update(
+        driver="GTiff",
+        tiled=True,
+        blockxsize=GTIFF_BLOCK_SIZE,
+        blockysize=GTIFF_BLOCK_SIZE,
+        compress="deflate",
+        predictor=predictor,
+        bigtiff="if_safer",
+    )
+
+
+def parse_mae_bands(value: str) -> tuple[int, int, int]:
+    """Parse one to three one-based source bands into three model channels."""
+    parts = [part.strip() for part in value.split(",")]
+    if not parts or any(not part for part in parts):
+        raise ValueError(
+            "Bands must contain one to three comma-separated integers."
+        )
+    if len(parts) > 3:
+        raise ValueError("A maximum of three bands can be selected.")
+
+    try:
+        bands = [int(part) for part in parts]
+    except ValueError as exc:
+        raise ValueError("Band numbers must be integers.") from exc
+
+    if any(band < 1 for band in bands):
+        raise ValueError("Band numbers must be positive and one-based.")
+
+    if len(bands) == 1:
+        bands *= 3
+    elif len(bands) == 2:
+        bands.append(bands[0])
+
+    return tuple(bands)
+
+
+def validate_source_bands(
+    img_path: Path,
+    bands: tuple[int, int, int],
+) -> None:
+    """Ensure that every selected one-based band exists in a raster."""
+    with rasterio.open(img_path) as src:
+        band_count = src.count
+
+    unavailable = sorted({band for band in bands if band > band_count})
+    if unavailable:
+        listed = ", ".join(map(str, unavailable))
+        raise ValueError(
+            f"{Path(img_path).name} has {band_count} band(s), but the "
+            f"selection requests unavailable band(s): {listed}."
+        )
+
+
+def _tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
+    """Return tile origins that cover an axis with the requested overlap."""
+    if tile_size < 1:
+        raise ValueError("Tile dimensions must be positive.")
+    if overlap < 0 or overlap >= tile_size:
+        raise ValueError(
+            "Tile overlap must be non-negative and smaller than the tile size."
+        )
+    if length <= tile_size:
+        return [0]
+
+    stride = tile_size - overlap
+    starts = list(range(0, length - tile_size + 1, stride))
+    final_start = length - tile_size
+    if starts[-1] != final_start:
+        starts.append(final_start)
+    return starts
+
+
+def raised_hann_window(
+    height: int,
+    width: int,
+    minimum_weight: float = DEFAULT_HANN_MIN_WEIGHT,
+) -> np.ndarray:
+    """Create a separable 2D Hann window with a nonzero weight floor.
+
+    The floor makes normalization stable at raster margins and in any area
+    covered by only one prediction. The returned window is normalized to a
+    maximum weight of one.
+    """
+    if height < 1 or width < 1:
+        raise ValueError("Hann-window dimensions must be positive.")
+    if not 0 < minimum_weight <= 1:
+        raise ValueError("minimum_weight must be greater than 0 and at most 1.")
+
+    row_window = np.hanning(height) if height > 1 else np.ones(1)
+    col_window = np.hanning(width) if width > 1 else np.ones(1)
+    weights = np.outer(row_window, col_window)
+    maximum = weights.max()
+    if maximum > 0:
+        weights /= maximum
+    weights = minimum_weight + (1.0 - minimum_weight) * weights
+    return weights.astype(np.float32)
+
 
 def tilling(
     img_path: Path,
     target_width: int = 512,
     target_height: int = 512,
+    overlap: int = DEFAULT_TILE_OVERLAP,
     compression: bool = False
 ):
-    """
-    Note: If the image source has rotation/shear (non-north-up geotransform),
-    the tile_gt math below still handles it correctly because it uses Window.
-    """
+    """Split a raster into overlapping tiles with full source coverage."""
+    if overlap >= min(target_width, target_height):
+        raise ValueError(
+            "Tile overlap must be smaller than both tile dimensions."
+        )
+
     # Create a temporal folder to store the chunks
     tiles_temp_folder = img_path.parent / (img_path.stem + "_temp_tiles")
     tiles_temp_folder.mkdir(exist_ok=True)
 
     # Store the tiles metadata in a dictionary
     tiles_meta = {}
-
-    # Optional GeoTIFF creation tweaks
-    GTIFF_CREATION_KWARGS = {
-        "driver": "GTiff",
-        "tiled": True,
-        "compress": "deflate",
-        "predictor": 2,
-        "BIGTIFF": "IF_SAFER"
-    }
 
     with rasterio.open(img_path) as src:
         img_width = src.width
@@ -52,8 +152,10 @@ def tilling(
         nodatavals = src.nodatavals
 
         tile_id = 1
-        for y in range(0, img_height, target_height):
-            for x in range(0, img_width, target_width):
+        y_starts = _tile_starts(img_height, target_height, overlap)
+        x_starts = _tile_starts(img_width, target_width, overlap)
+        for y in y_starts:
+            for x in x_starts:
                 w = min(target_width, img_width - x)
                 h = min(target_height, img_height - y)
 
@@ -74,17 +176,16 @@ def tilling(
                     }
                 )
                 if compression:
-                    tile_profile.update({**GTIFF_CREATION_KWARGS})
+                    _set_tiled_gtiff_profile(tile_profile, predictor=2)
 
-                # If source uses internal tiling, rasterio/GDAL may require
-                # block sizes not to exceed tile dimensions.
-                # Make block sizes <= output dims.
-                # if tile_profile.get("tiled", False):
-                #     bsx = min(256, tile_profile["width"])
-                #     bsy = min(256, tile_profile["height"])
-                #     tile_profile.update({"blockxsize": bsx, "blockysize": bsy})
-
-                tiles_meta[tile_id] = {"y": y, "x": x, "path": tile_path}
+                tiles_meta[tile_id] = {
+                    "y": y,
+                    "x": x,
+                    "width": w,
+                    "height": h,
+                    "overlap": overlap,
+                    "path": tile_path,
+                }
                 tile_id += 1
 
                 if tile_path.exists():
@@ -141,19 +242,12 @@ def vit_tokens(model, x):
     return x  # (B, 1+N, D)
 
 
-def to_3ch(img):  # img: (C,H,W)
-    C, H, W = img.shape
-    if C == 3:
-        return img
-    if C == 1:
-        return np.repeat(img, 3, axis=0)
-    if C == 2:
-        return np.concatenate([img, img[:1]], axis=0)  # add a copy of band0
-    # C > 3
-    return img[:3]
-
-
-def compute_mae(img_path, model, device: str):
+def compute_mae(
+    img_path,
+    model,
+    device: str,
+    bands: tuple[int, int, int] = (1, 1, 1),
+):
     """
     Note: This function does not a MAE training / reconstruction. It's just
     MAE-pretrained weights used for feature maps.
@@ -162,8 +256,9 @@ def compute_mae(img_path, model, device: str):
     For other type of images, the features might still be useful, but the
     "pretraining prior" isn't perfectly matched.
     """
+    validate_source_bands(img_path, bands)
     with rasterio.open(img_path) as src:
-        img = src.read() # (C, H, W)
+        img = src.read(list(bands))  # (3, H, W), in the selected order
         meta = src.meta.copy()
         nodata = src.nodata
     
@@ -175,8 +270,6 @@ def compute_mae(img_path, model, device: str):
     if is_all_nodata:
         return img[0], out_meta
 
-    # Transform the image into a 3 channels one
-    img = to_3ch(img)
     C, H, W = img.shape
 
     # Normalize to [0, 1] per band
@@ -217,51 +310,6 @@ def compute_mae(img_path, model, device: str):
 
     return heat_up, out_meta
 
-def update_csv(csv_path, file_name, mean_value, max_value):
-    """
-    Store mean MAE values by image.
-
-    Add (img_name, embedding_norms_mean) to a CSV file.
-    Creates the file if it does not exist.
-    Avoids duplicates based on img_name.
-    """
-    fieldnames = ["img_name", "embedding_norms_mean", "embedding_norms_max"]
-    new_row = {
-        "img_name": file_name,
-        "embedding_norms_mean": round(mean_value, 2),
-        "embedding_norms_max": round(max_value, 2)
-    }
-
-    # If file does not exist, create it
-    if not Path(csv_path).exists():
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerow(new_row)
-        return
-
-    # If file exists, read and check
-    rows = []
-    img_names = set()
-
-    with open(csv_path, "r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-
-        for row in reader:
-            rows.append(row)
-            img_names.add(row["img_name"])
-
-    # If file_name already exists, do nothing
-    if file_name in img_names:
-        return
-
-    # Otherwise, append and rewrite file
-    rows.append(new_row)
-
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
 
 def define_model(
     required_bands: int = 3,
@@ -283,9 +331,10 @@ def define_model(
 def compute_mae_batch(
     tiles_meta: dict,
     out_path: str,
-    stats_csv_path,
     model,
     device: str,
+    bands: tuple[int, int, int] = (1, 1, 1),
+    hann_min_weight: float = DEFAULT_HANN_MIN_WEIGHT,
     out_suffix = "_mae.tif"
 ):
     """
@@ -293,6 +342,9 @@ def compute_mae_batch(
     
     :required_bands: Number of bands inside target images.
     """
+    if not tiles_meta:
+        raise ValueError("No source tiles were provided for MAE inference.")
+
     for tile_id, props in tiles_meta.items():
 
         tile_path = Path(props["path"])
@@ -300,78 +352,113 @@ def compute_mae_batch(
         out_name = tile_path.stem + out_suffix
         out_tile_path = tile_path.parent / out_name
         
+        selected_bands = ",".join(map(str, bands))
         if out_tile_path.exists():
-            continue
+            with rasterio.open(out_tile_path) as existing:
+                if existing.tags().get("MAE_SOURCE_BANDS") == selected_bands:
+                    continue
 
-        heatmap, out_meta = compute_mae(tile_path, model, device)
+        heatmap, out_meta = compute_mae(
+            tile_path,
+            model,
+            device,
+            bands=bands,
+        )
 
         with rasterio.open(out_tile_path, "w", **out_meta) as dst:
             dst.write(heatmap, 1)
+            dst.update_tags(
+                MAE_SOURCE_BANDS=selected_bands,
+                MAE_BAND_INDEXING="one-based",
+            )
 
-    merge_mae_tiles(tile_path.parent, out_suffix, out_path)
-    mae_mean, mae_max = compute_mae_stats(out_path)
-    update_csv(stats_csv_path, Path(out_path).stem, mae_mean, mae_max)
-
-
-def compute_mae_stats(img_path):
-    """
-    Retrieve the Embedding Norms mean value
-
-    Note: it avoids loading the whole raster into memory.
-    """
-    total_sum = 0.0
-    total_count = 0
-    max_value = None
-
-    with rasterio.open(img_path) as src:
-        nodata = src.nodata
-
-        # Iterate over blocks of band 1
-        for _, window in src.block_windows(1):
-            data = src.read(1, window=window, masked=True)
-
-            # Skip fully masked blocks
-            if data.count() == 0:
-                continue
-            
-            # Update sum and count
-            total_sum += data.sum()
-            total_count += data.count()
-
-            # Update max
-            block_max = data.max()
-
-            if max_value is None or block_max > max_value:
-                max_value = block_max
-
-    mean_value = total_sum / total_count if total_count > 0 else None
-    return mean_value, max_value
-
-def merge_mae_tiles(folder, mae_suffix, out_path):
-    suffix = f"*{mae_suffix}"
-    inputs = sorted([*folder.glob(suffix), *folder.glob(suffix)])
-    srcs = [rasterio.open(p) for p in inputs]
-    try:
-        mosaic, transform = merge(srcs)
-        out_meta = srcs[0].meta.copy()
-        out_meta.update(
-            {
-                "driver": "GTiff",
-                "height": mosaic.shape[1],
-                "width": mosaic.shape[2],
-                "transform": transform,
-                "compress": "deflate",
-                "predictor": 2,
-                "tiled": True,
-                "bigtiff": "if_safer",
-            }
+    merge_mae_tiles(
+        tiles_meta,
+        out_suffix,
+        out_path,
+        minimum_weight=hann_min_weight,
+    )
+    with rasterio.open(out_path, "r+") as dst:
+        overlap = next(iter(tiles_meta.values())).get("overlap", 0)
+        dst.update_tags(
+            MAE_SOURCE_BANDS=",".join(map(str, bands)),
+            MAE_BAND_INDEXING="one-based",
+            MAE_TILE_OVERLAP=str(overlap),
+            MAE_BLEND_WINDOW="raised_hann",
+            MAE_HANN_MIN_WEIGHT=f"{hann_min_weight:g}",
         )
 
-        with rasterio.open(out_path, "w", **out_meta) as dst:
-            dst.write(mosaic)
-    finally:
-        for s in srcs:
-            s.close()
+
+def merge_mae_tiles(
+    tiles_meta: dict,
+    mae_suffix: str,
+    out_path: str,
+    minimum_weight: float = DEFAULT_HANN_MIN_WEIGHT,
+) -> None:
+    """Blend overlapping MAE predictions using raised-Hann weights.
+
+    For every output pixel this computes ``sum(S_i * w_i) / sum(w_i)``.
+    Invalid prediction pixels do not contribute to either sum.
+    """
+    if not tiles_meta:
+        raise ValueError("No MAE tiles were provided for merging.")
+
+    tile_records = []
+    for props in tiles_meta.values():
+        tile_path = Path(props["path"])
+        prediction_path = tile_path.with_name(tile_path.stem + mae_suffix)
+        if not prediction_path.exists():
+            raise FileNotFoundError(
+                f"MAE prediction tile does not exist: {prediction_path}"
+            )
+
+        x = int(props["x"])
+        y = int(props["y"])
+        with rasterio.open(prediction_path) as src:
+            height, width = src.height, src.width
+            if not tile_records:
+                out_meta = src.profile.copy()
+                source_transform = src.transform * Affine.translation(-x, -y)
+                source_nodata = src.nodata
+
+        tile_records.append((prediction_path, x, y, width, height))
+
+    output_width = max(x + width for _, x, _, width, _ in tile_records)
+    output_height = max(y + height for _, _, y, _, height in tile_records)
+    weighted_sum = np.zeros((output_height, output_width), dtype=np.float64)
+    weight_sum = np.zeros((output_height, output_width), dtype=np.float64)
+
+    for prediction_path, x, y, width, height in tile_records:
+        with rasterio.open(prediction_path) as src:
+            prediction = src.read(1, masked=True)
+
+        weights = raised_hann_window(height, width, minimum_weight)
+        values = prediction.filled(0).astype(np.float64, copy=False)
+        valid = ~np.ma.getmaskarray(prediction) & np.isfinite(values)
+        valid_weights = weights * valid
+        rows = slice(y, y + height)
+        cols = slice(x, x + width)
+        weighted_sum[rows, cols] += values * valid_weights
+        weight_sum[rows, cols] += valid_weights
+
+    nodata = source_nodata if source_nodata is not None else np.nan
+    mosaic = np.full((output_height, output_width), nodata, dtype=np.float32)
+    covered = weight_sum > 0
+    mosaic[covered] = (
+        weighted_sum[covered] / weight_sum[covered]
+    ).astype(np.float32)
+
+    out_meta.update(
+        count=1,
+        dtype="float32",
+        nodata=nodata,
+        height=output_height,
+        width=output_width,
+        transform=source_transform,
+    )
+    _set_tiled_gtiff_profile(out_meta, predictor=3)
+    with rasterio.open(out_path, "w", **out_meta) as dst:
+        dst.write(mosaic, 1)
 
 
 def clip_mae(inp_path: Path, clip_layer_path: Path) -> None:
@@ -382,6 +469,7 @@ def clip_mae(inp_path: Path, clip_layer_path: Path) -> None:
 
     try:
         with rasterio.open(inp_path) as src:
+            source_tags = src.tags()
             with fiona.open(clip_layer_path) as clip_layer:
                 geometries = [
                     transform_geom(
@@ -411,6 +499,7 @@ def clip_mae(inp_path: Path, clip_layer_path: Path) -> None:
 
             with rasterio.open(temp_path, "w", **profile) as dst:
                 dst.write(clipped)
+                dst.update_tags(**source_tags)
 
         temp_path.replace(inp_path)
 

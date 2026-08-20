@@ -59,26 +59,6 @@
         "reference": " https://doi.org/10.2134/agronj2005.0200",
         "short_name": "GDVI"
     },
-    "GEMI": {
-        "application_domain": "vegetation",
-        "bands": [
-            "N",
-            "R"
-        ],
-        "contributor": "https://github.com/davemlz",
-        "date_of_addition": "2022-04-28",
-        "formula": "0.75*((2.0*((B ** 2.0)-(A ** 2.0)) + 1.5*B + 0.5*A)/(B + A + 0.5)) - ((A - 0.125)/(1-A))",
-        "long_name": "Global Environment Monitoring Index",
-        "platforms": [
-            "Sentinel-2",
-            "Landsat-89",
-            "Landsat-457",
-            "MODIS",
-            "Planet-Fusion"
-        ],
-        "reference": "https://doi.org/10.1007/BF00031911",
-        "short_name": "GEMI"
-    },
     "GM1": {
         "application_domain": "vegetation",
         "bands": [

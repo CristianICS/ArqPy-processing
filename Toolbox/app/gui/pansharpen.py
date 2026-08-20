@@ -1,9 +1,11 @@
 from pathlib import Path
+
 from osgeo import gdal
+import PySimpleGUI as sg
+
 from pansharp import SENSORS
 from pansharp import brovey, bayesian
-
-import PySimpleGUI as sg
+from .icon_base64 import ICON
 
 gdal.UseExceptions()
 
@@ -147,7 +149,7 @@ def main():
         [sg.Output(size=(80, 20))]
     ]
 
-    window = sg.Window("Pansharpening", layout)
+    window = sg.Window("Pansharpening", layout, icon=ICON)
 
     while True:
         event, values = window.read()
