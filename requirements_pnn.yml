@@ -1,0 +1,19 @@
+name: pansharpen_dl
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - torchvision
+  - scikit-image
+  - scipy
+  - torchaudio
+  - cudatoolkit=11.3
+  - scikit-learn
+  - matplotlib
+  - numpy
+  - pytorch
+  - tqdm
+  - gdal
+  - tk
+  - pysimplegui
+  - conda-pack
