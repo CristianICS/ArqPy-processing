@@ -1,4 +1,4 @@
-# ArcPy Toolbox
+# ArqPy Toolbox
 
 This toolbox generates a series of products derived from remote sensing images for archaeological analysis, with a particular focus on crop mark detection. It includes Masked Autoencoder (MAE) saliency analysis and CNN-based pansharpening using methods from the [Z-PNN repository](https://github.com/matciotola/Z-PNN).
 
