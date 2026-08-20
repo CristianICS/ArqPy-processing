@@ -1,0 +1,13 @@
+name: mae_gpu
+channels:
+  - conda-forge
+dependencies:
+  # Optional CUDA-capable build. This is substantially larger than the
+  # default CPU environment but preserves GPU acceleration when available.
+  - python=3.11
+  - timm
+  - rasterio
+  - fiona
+  - "pytorch=2.5.*=*cuda*"
+  - "torchvision=0.20.*=*cuda*"
+  - pysimplegui

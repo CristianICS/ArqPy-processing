@@ -19,5 +19,3 @@ if not exist "%ENV_DIR%\__unpacked__.txt" (
 echo Launching SAM 3 crop-mark segmentation...
 call "%ENV_DIR%\Scripts\activate.bat"
 python "%~dp0app\sam3_cropmarks_launcher.py"
-
-pause

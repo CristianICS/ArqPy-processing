@@ -1,10 +1,8 @@
 # ArcPy Toolbox
 
-This toolbox generates a series of products derived from remote sensing images for archaeological analysis, with a particular focus on crop mark detection. It also includes an option to apply a Masked Autoencoder (MAE) to identify zones with a higher probability of containing crop marks.
+This toolbox generates a series of products derived from remote sensing images for archaeological analysis, with a particular focus on crop mark detection. It includes Masked Autoencoder (MAE) saliency analysis and CNN-based pansharpening using methods from the [Z-PNN repository](https://github.com/matciotola/Z-PNN).
 
-Furthermore, the tool includes two additional functions: one to detect crop marks using [Meta's SAM 3 model](https://github.com/facebookresearch/sam3) (`sam3_detection.bat`) and to do a pansharpening operation (`pansharpen_dl.bat`) based in convolutional neural networks included in the [Z-PNN repository](https://github.com/matciotola/Z-PNN).
-
-These two tools require additional customization. See [section Additional tools](#additional-tools).
+The downloaded application includes the preprocessing, MAE, and Z-PNN environments. [Meta's SAM 3 model](https://github.com/facebookresearch/sam3), launched through `sam3_detection.bat`, is the only component that requires a separate environment and model access.
 
 ## Introduction
 
@@ -19,10 +17,10 @@ The available operations should be executed in the following recommended order:
 5. `highpass` - spatial filtering
 6. `mae` - Masked Autoencoder-based analysis
 
-The two additional operations are:
+The additional operations are:
 
-7. `sam3_cropmarks` - SAM 3 model to find crop marks in RGB images
-8. `pansharpening_dl` - spatial-spectral fusion based on Deep Learning models
+7. `pansharpening_cnn` - bundled CNN-based spatial-spectral fusion
+8. `sam3_detection` - optional SAM 3 crop-mark segmentation requiring external setup
 
 Each operation provides a graphical user interface for configuring the parameters required for execution.
 
@@ -32,13 +30,10 @@ The [ArqPy tool guides](docs/tools/README.md) provide a separate, archaeologist-
 
 ## Available sensors
 
-Atmospheric correction is currently supported for the following sensors:
+The `atmcorr`, `pca`, `pansharpening`, and `spectral_indices` operations are currently supported for the following sensors:
 
 * WorldView-3 (WV3)
 * WorldView LEGION-06
-
-
-The `pca`, `pansharpening`, and `spectral_indices` operations are available only for WV3 and LEGION sensors.
 
 The `highpass` and `mae` operations are available for any image provided in GeoTIFF format.
 
@@ -52,12 +47,28 @@ This repository includes a reduced WorldView-3 image for testing and demonstrati
 
 No installation is required beyond downloading and extracting the toolbox.
 
+The Python environments included in the downloaded application are compressed as `env.7z`, `env_mae.7z`, and `env_pnn.7z`; they must be decompressed before the corresponding toolbox operations are launched.
+
+Together, these compressed environments keep the downloadable application below the 2 GB release-asset limit while providing all components except SAM 3.
+
 1. Download the toolbox release.
 2. Extract the archive to a local directory, for example `C:\Toolbox`.
-3. Extract the folders `env` and `env_mae`.
-4. Ensure that the directory structure is preserved.
+3. Inside the extracted `Toolbox` directory, decompress `env.7z`, `env_mae.7z`, and `env_pnn.7z`.
+4. Ensure that each archive creates exactly one environment directory directly inside `Toolbox`.
 
-The toolbox includes all required Python environments and external dependencies.
+When using 7-Zip, choose **Extract Here** if the archives already contain their top-level `env`, `env_mae`, and `env_pnn` directories. Do not choose an option that creates another directory with the same name around them.
+
+The resulting paths must resemble:
+
+```txt
+Toolbox\env\Scripts\activate.bat
+Toolbox\env_mae\Scripts\activate.bat
+Toolbox\env_pnn\Scripts\activate.bat
+```
+
+Paths such as `Toolbox\env\env\Scripts\activate.bat` or `Toolbox\env_pnn\env_pnn\Scripts\activate.bat` are incorrect. If this nested structure is created, move the inner environment directory contents up one level before running the application.
+
+The toolbox includes all runtime environments except the optional SAM 3 environment.
 
 ## Directory structure
 
@@ -69,26 +80,42 @@ Toolbox
 |- app        (Python scripts used to perform the operations)
 |- env        (packed Python environment for preprocessing)
 |  |
-|  |- OTB-9.1.1-Win64  (Orfeo ToolBox binaries)
+|  \- OTB-9.1.1-Win64  (Orfeo ToolBox binaries)
 |- env_mae    (packed Python environment for MAE analysis)
-|- Z-PNN      (modified Z-PNN repository to match the environment)
+|- env_pnn    (bundled Z-PNN Python environment)
+|  |
+|  \- Z-PNN   (modified Z-PNN repository)
 |- atmcorr.bat
 |- ...
-|- README.md
+\- README.md
 ```
 
-## External dependencies
+## Bundled components and external dependencies
 
 The default toolbox relies on **Orfeo ToolBox (OTB) version 9.1.1**, which is already included in the release. No additional downloads are required.
 
-### Additional tools
+### MAE model weights
 
-There are two additional tools that has no included in the default instalation regarding their further customization. These can be used with the current toolbox, but it requires a few additional steps.
+The pretrained MAE weights are not stored inside `env_mae`. Leaving the local checkpoint field blank makes the tool use cached weights or download them on first use. For offline use, download the compatible checkpoint in advance:
 
-#### SAM 3 segmentation
+```bat
+Toolbox\env_mae\Scripts\activate.bat
+hf download timm/vit_base_patch16_224.mae model.safetensors --local-dir C:\models\mae
+```
 
-`Toolbox/sam3_cropmarks.bat` launches a folder-level crop-mark segmentation
-tool based on [Meta's SAM 3 image processor](https://github.com/facebookresearch/sam3).
+Select `C:\models\mae\model.safetensors` in the MAE interface when running without internet access.
+
+### Z-PNN pansharpening
+
+The release includes `env_pnn` and the compatible modified Z-PNN repository. After extracting `env_pnn.7z`, `pansharpening_cnn.bat` can be launched without installing Conda or downloading another environment. The expected layout is:
+
+```txt
+Toolbox\env_pnn\Z-PNN\main.py
+```
+
+### Optional external dependency: SAM 3
+
+`Toolbox/sam3_detection.bat` launches a folder-level crop-mark segmentation tool based on [Meta's SAM 3 image processor](https://github.com/facebookresearch/sam3).
 
 The first step is to create and pack a separate environment from the project root:
 
@@ -97,8 +124,7 @@ mamba env create -f requirements_sam3.yml
 conda-pack -n sam3_cropmarks -o Toolbox/env_sam3.zip
 ```
 
-SAM 3 currently needs Python 3.12, a recent PyTorch version, and a
-CUDA-compatible GPU. Extract `env_sam3.zip` as `Toolbox/env_sam3`.
+SAM 3 currently needs Python 3.12, a recent PyTorch version, and a CUDA-compatible GPU. Extract `env_sam3.zip` as `Toolbox/env_sam3`.
 
 Before the first run, request access to the `facebook/sam3` checkpoint on Hugging Face and authenticate from the environment:
 
@@ -113,35 +139,9 @@ Choose browser login or paste a read-access token. Then download the checkpoint 
 hf download facebook/sam3 sam3.pt --local-dir C:\models\sam3
 ```
 
-#### Z-PNN pansharpening
+## Known limitations
 
-`Toolbox/pansharpening_dl.bat` launches the WorldView/GeoEye deep-learning pansharpening methods included in the bundled [`Z-PNN` repository](https://github.com/matciotola/Z-PNN).
-
-Create and pack its separate environment from the project root in a Miniforge/Miniconda/Anaconda prompt:
-
-```bat
-mamba env create -f requirements_pnn.yml
-conda-pack -n pansharpen_dl -o Toolbox/env_pnn.zip
-```
-
-The PyTorch packages are explicitly taken from the `pytorch` channel while the scientific and GIS stack comes from `conda-forge`. This makes the file work with strict channel priority and avoids accidentally selecting conda-forge's newer CPU-only PyTorch builds. If an older Mamba version still reports an unsatisfiable environment, use flexible priority for this command only:
-
-```bat
-mamba env create -f requirements_pnn.yml --channel-priority flexible
-```
-
-> Note: This command-line option does not modify the global Conda configuration.
-
-To verify the important imports before packing the environment:
-
-```bat
-conda activate pansharpen_dl
-python -c "import torch, scipy, skimage, PySimpleGUI; from osgeo import gdal; print('Torch', torch.__version__, 'GDAL', gdal.VersionInfo())"
-```
-
-Once the conda environment is created, extract `env_pnn.zip` as `Toolbox/env_pnn`.
-
-Note: The Z-PNN repository is downloaded previously and is already inside the `Toolbox`. It has been modified to match the environment's dependencies.
+KML files are not currently supported as clipping layers because the GDAL environment packaged with the application does not include the `LIBKML` driver. Convert KML data to another supported vector format, such as GeoJSON, GeoPackage, or ESRI Shapefile, before using it for clipping.
 
 ## Running the toolbox
 
@@ -159,7 +159,7 @@ Each batch file automatically activates the appropriate environment and routes t
 
 ## Setting up the development environment
 
-The release includes the complete application directory and all required environments.
+The release includes the complete application directory and the preprocessing, MAE, and Z-PNN environments. The optional SAM 3 environment remains external.
 
 To reproduce the same structure, follow the steps below in a Miniforge or Miniconda terminal.
 
@@ -168,6 +168,13 @@ Create the environments using the provided `.yml` files:
 ```bash
 mamba env create -f requirements_otb.yml
 mamba env create -f requirements_mae.yml
+mamba env create -f requirements_pnn.yml
+```
+
+The default MAE environment is CPU-only to keep the downloadable toolbox small. To build the larger CUDA-capable alternative instead, use:
+
+```bash
+mamba env create -f requirements_mae_gpu.yml
 ```
 
 Install `conda-pack` in your base Python environment if it is not already installed:
@@ -180,7 +187,16 @@ Package the environments and place the resulting archives in the `Toolbox` direc
 
 ```bash
 conda-pack -n arcpy_otb -o Toolbox/env.zip
-conda-pack -n mae -o Toolbox/env_mae.zip
+conda-pack -n mae -o Toolbox/env_mae.zip --format zip --compress-level 9 --n-threads -1 --exclude "*.pyc" --exclude "*/__pycache__/*" --exclude "Library/include/*" --exclude "Library/lib/*.lib" --exclude "Library/bin/*.pdb" --exclude "include/*"
+conda-pack -n pansharpen_dl -o Toolbox/env_pnn.zip
+```
+
+The MAE exclusions remove Python caches, development headers, import libraries, and debug symbols that are not needed to run the packaged application.
+
+For the optional GPU environment, package it under the same release folder name expected by `mae.bat`:
+
+```bash
+conda-pack -n mae_gpu -o Toolbox/env_mae.zip --format zip --compress-level 9 --n-threads -1 --exclude "*.pyc" --exclude "*/__pycache__/*" --exclude "Library/include/*" --exclude "Library/lib/*.lib" --exclude "Library/bin/*.pdb" --exclude "include/*"
 ```
 
 Finally, add [Orfeo ToolBox](https://www.orfeo-toolbox.org/) to the `env` directory.
@@ -198,6 +214,8 @@ Toolbox
 |_ ...
 ```
 
-## Further improvements
+After reproducing the complete toolbox structure, compress the final application from a Bash terminal with:
 
-* Investigate how to reduce the size of the toolbox environments by including only the required packages.
+```bash
+tar -czf ArqPy-1.2.1.tar.gz -C "C:/ArqPy-Toolbox-1.2.1" .
+```

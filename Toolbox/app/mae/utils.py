@@ -313,19 +313,36 @@ def compute_mae(
 
 def define_model(
     required_bands: int = 3,
-    model_name = "vit_base_patch16_224.mae"
+    model_name: str = "vit_base_patch16_224.mae",
+    checkpoint_path: str | Path | None = None,
 ):
-    """Retrieve target model once."""
+    """Load the MAE model from a local checkpoint or the remote default."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Load MAE Vision Transformer (ViT) model by default
+    checkpoint = Path(checkpoint_path).resolve() if checkpoint_path else None
+    if checkpoint is not None and not checkpoint.is_file():
+        raise FileNotFoundError(f"MAE checkpoint does not exist: {checkpoint}")
+
+    pretrained_overlay = (
+        {"file": str(checkpoint)} if checkpoint is not None else None
+    )
     model = timm.create_model(
         model_name,
         pretrained=True,
+        pretrained_cfg_overlay=pretrained_overlay,
         # Note: always three bands (or the first three bands).
         in_chans=required_bands
     ).to(device).eval()
 
     return model, device
+
+
+def _model_source(model) -> str:
+    """Return a concise, reproducible identifier for the loaded weights."""
+    config = getattr(model, "pretrained_cfg", {}) or {}
+    local_file = config.get("file")
+    if local_file:
+        return Path(local_file).name
+    return config.get("hf_hub_id") or config.get("url") or "pretrained_default"
 
 
 def compute_mae_batch(
@@ -344,6 +361,8 @@ def compute_mae_batch(
     """
     if not tiles_meta:
         raise ValueError("No source tiles were provided for MAE inference.")
+
+    model_source = _model_source(model)
 
     for tile_id, props in tiles_meta.items():
 
@@ -370,6 +389,7 @@ def compute_mae_batch(
             dst.update_tags(
                 MAE_SOURCE_BANDS=selected_bands,
                 MAE_BAND_INDEXING="one-based",
+                MAE_MODEL_SOURCE=model_source,
             )
 
     merge_mae_tiles(
@@ -386,6 +406,7 @@ def compute_mae_batch(
             MAE_TILE_OVERLAP=str(overlap),
             MAE_BLEND_WINDOW="raised_hann",
             MAE_HANN_MIN_WEIGHT=f"{hann_min_weight:g}",
+            MAE_MODEL_SOURCE=model_source,
         )
 
 

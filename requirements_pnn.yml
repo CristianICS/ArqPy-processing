@@ -3,12 +3,13 @@ channels:
   - pytorch
   - conda-forge
 dependencies:
-  - torchvision
+  # Lean GPU runtime for the bundled Z-PNN code. torchvision, torchaudio,
+  # and scikit-learn are intentionally omitted because neither ArqPy nor
+  # the upstream Z-PNN inference/fine-tuning scripts import them.
+  - python=3.10
   - scikit-image
   - scipy
-  - torchaudio
   - cudatoolkit=11.3
-  - scikit-learn
   - matplotlib
   - numpy
   - pytorch
@@ -16,4 +17,3 @@ dependencies:
   - gdal
   - tk
   - pysimplegui
-  - conda-pack

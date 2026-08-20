@@ -28,10 +28,26 @@ RATIO = 4
 
 
 def _zpnn_root() -> Path:
-    root = Path(__file__).resolve().parents[2] / "Z-PNN"
-    if not (root / "main.py").is_file():
-        raise FileNotFoundError(f"Bundled Z-PNN repository not found at: {root}")
-    return root
+    """Locate the Z-PNN repository in the active environment or toolbox."""
+    module_path = Path(__file__).resolve()
+    candidates = [Path(sys.executable).resolve().parent / "Z-PNN"]
+
+    for parent in module_path.parents:
+        candidates.extend((parent / "env_pnn" / "Z-PNN", parent / "Z-PNN"))
+
+    checked_locations = []
+    for candidate in candidates:
+        if candidate in checked_locations:
+            continue
+        checked_locations.append(candidate)
+        if (candidate / "main.py").is_file():
+            return candidate
+
+    checked = "\n - ".join(map(str, checked_locations))
+    raise FileNotFoundError(
+        "Bundled Z-PNN repository containing main.py was not found. "
+        f"Checked:\n - {checked}"
+    )
 
 
 def _raster_to_mat(ms_path: Path, pan_path: Path, mat_path: Path, expected_bands: int):

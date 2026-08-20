@@ -2,12 +2,12 @@ name: mae
 channels:
   - conda-forge
 dependencies:
-  - python
+  # Compact default build for distribution. The CPU-only PyTorch variants
+  # avoid bundling several gigabytes of CUDA runtime libraries.
+  - python=3.12
   - timm
-  - einops
-  - scikit-learn
   - rasterio
   - fiona
-  - pytorch
-  - torchvision
+  - "pytorch=*=cpu*"
+  - "torchvision=*=cpu*"
   - pysimplegui

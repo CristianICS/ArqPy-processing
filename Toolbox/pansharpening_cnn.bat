@@ -19,5 +19,3 @@ if not exist "%ENV_DIR%\__unpacked__.txt" (
 echo Launching deep-learning pansharpening...
 call "%ENV_DIR%\Scripts\activate.bat"
 python "%~dp0app\pansharpen_cnn_launcher.py"
-
-pause

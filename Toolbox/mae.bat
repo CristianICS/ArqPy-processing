@@ -14,5 +14,3 @@ if not exist "%ENV_DIR%\__unpacked__.txt" (
 echo Launching the application...
 call "%ENV_DIR%\Scripts\activate.bat"
 python "%~dp0\app\mae_launcher.py"
-
-pause

@@ -20,9 +20,11 @@ def run_job(values):
     """Computing MAE over all images inside a folder."""
     try:
         bands = parse_mae_bands(values["-BANDS-"])
+        checkpoint_text = values.get("-CHECKPOINT-", "").strip()
+        checkpoint = Path(checkpoint_text) if checkpoint_text else None
 
         # Retrieve the model
-        model, device = define_model()
+        model, device = define_model(checkpoint_path=checkpoint)
 
         imgs_folder = Path(values["-FOLDER-"])
 
@@ -86,6 +88,10 @@ def _validate(values):
     if clip_text and not Path(clip_text).is_file():
         raise ValueError("The selected vector layer does not exist.")
 
+    checkpoint_text = values.get("-CHECKPOINT-", "").strip()
+    if checkpoint_text and not Path(checkpoint_text).is_file():
+        raise ValueError("The selected MAE checkpoint does not exist.")
+
 
 def main():
     sg.theme('VSCodeDark')
@@ -117,6 +123,22 @@ def main():
             "three model channels.",
             font=("Arial", 10, "italic"),
         )],
+        [sg.Text(
+            "Optional local MAE checkpoint "
+            "(blank downloads or uses cached weights):"
+        )],
+        [
+            sg.Input(key="-CHECKPOINT-"),
+            sg.FileBrowse(
+                file_types=(
+                    (
+                        "Model checkpoints",
+                        "*.safetensors;*.bin;*.pth;*.pt",
+                    ),
+                    ("All files", "*.*"),
+                )
+            ),
+        ],
         # Clip operation
         # Vector layer path
         [sg.Text("Vector layer to perform a clip operation:")],

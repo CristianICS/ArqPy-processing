@@ -10,11 +10,11 @@ These guides explain what each graphical tool does, what to enter in every field
 4. [Spectral indices](spectral-indices.md) — calculate vegetation, soil, and related band ratios.
 5. [High-pass filters](high-pass-filters.md) — emphasize edges and local texture.
 6. [MAE saliency](mae-saliency.md) — rank visually unusual regions using a pretrained image model.
+7. [Deep-learning pansharpening](deep-learning-pansharpening.md) — run the bundled Z-PNN methods.
 
-Optional tools with separate environments:
+Optional external tool:
 
 - [SAM 3 crop-mark detection](sam3-crop-marks.md) — segment candidate features from a text prompt.
-- [Deep-learning pansharpening](deep-learning-pansharpening.md) — run the bundled Z-PNN methods.
 
 The order is a recommendation, not a requirement. Keep the original data and place outputs from each stage in separate folders. A visible anomaly is not automatically archaeological: compare it with field boundaries, drainage, geology, recent land use, image seams, and evidence from other dates or methods.
 
@@ -25,7 +25,7 @@ The order is a recommendation, not a requirement. Keep the original data and pla
 | **Run** | Starts processing. It is disabled while a job is running. Progress and errors appear in the text panel. |
 | **Exit** | Closes the window. Do not use it to interrupt a job unless necessary. |
 | **Output folder** | Where offered, leaving it blank uses the automatic location described in that tool's guide. A manually selected folder usually must already exist. |
-| **Vector layer to perform a clip operation** | Optional cutline. The output is cropped to the vector geometry. Use a valid `.shp`, `.gpkg`, `.geojson`, or `.kml` as allowed by the file picker, and ensure its CRS is defined. |
+| **Vector layer to perform a clip operation** | Optional cutline. The output is cropped to the vector geometry. Use a valid `.shp`, `.gpkg`, or `.geojson` and ensure its CRS is defined. KML is currently unsupported because the packaged GDAL environment does not include the `LIBKML` driver. |
 
 ## Sensor band names
 
