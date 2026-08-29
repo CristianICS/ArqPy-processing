@@ -10,10 +10,9 @@ import numpy as np
 from osgeo import gdal
 from scipy import io
 
+from core.raster_io import RasterProfile, create_gtiff_like
 from .grid import align_raster_grids
 
-
-gdal.UseExceptions()
 
 ALGORITHMS = (
     "Z-PNN",
@@ -88,19 +87,19 @@ def _mat_to_geotiff(mat_path: Path, reference_pan: Path, output_path: Path):
                 f"{output.shape[:2]} != {(reference.RasterYSize, reference.RasterXSize)}."
             )
         output = np.clip(output, 0, np.iinfo(np.uint16).max).astype(np.uint16)
-        driver = gdal.GetDriverByName("GTiff")
-        destination = driver.Create(
-            str(output_path),
+        destination = create_gtiff_like(
+            output_path,
             reference.RasterXSize,
             reference.RasterYSize,
             output.shape[2],
             gdal.GDT_UInt16,
-            options=["TILED=YES", "COMPRESS=DEFLATE", "PREDICTOR=2"],
+            geotransform=reference.GetGeoTransform(),
+            projection=reference.GetProjection(),
+            profile=RasterProfile(
+                compress="DEFLATE", predictor=2, tiled=True,
+                blockxsize=None, blockysize=None, bigtiff=None,
+            ),
         )
-        if destination is None:
-            raise RuntimeError(f"Could not create output raster: {output_path}")
-        destination.SetGeoTransform(reference.GetGeoTransform())
-        destination.SetProjection(reference.GetProjection())
         for band_index in range(output.shape[2]):
             destination.GetRasterBand(band_index + 1).WriteArray(output[:, :, band_index])
         destination.FlushCache()
@@ -146,6 +145,7 @@ def run_pansharpening(
 
         input_mat = temporary_path / f"{ms_path.stem}.mat"
         print("Creating the Z-PNN input MAT file...")
+        print(f"Temporary MAT file: {input_mat}")
         _raster_to_mat(alignment.ms_path, alignment.pan_path, input_mat, SENSORS[sensor])
 
         command = [

@@ -6,8 +6,7 @@ from pathlib import Path
 
 from osgeo import gdal, osr
 
-
-gdal.UseExceptions()
+from core.raster_io import RasterProfile, gdal_creation_options
 
 
 @dataclass(frozen=True)
@@ -139,7 +138,10 @@ def align_raster_grids(
             "outputBounds": bounds,
             "dstSRS": ms.GetProjection(),
             "multithread": True,
-            "creationOptions": ["TILED=YES", "COMPRESS=DEFLATE", "PREDICTOR=2"],
+            "creationOptions": gdal_creation_options(RasterProfile(
+                compress="DEFLATE", predictor=2, tiled=True,
+                blockxsize=None, blockysize=None, bigtiff=None,
+            )),
             "warpOptions": ["NUM_THREADS=ALL_CPUS"],
         }
         ms_output = gdal.Warp(

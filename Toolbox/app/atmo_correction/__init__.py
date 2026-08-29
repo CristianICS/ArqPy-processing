@@ -11,12 +11,15 @@ from .formulas import FORMULAS
 from .streaming import OutputSpec
 from .streaming import correct_raster_streaming
 from .utils import SensorParams
+from .job import AtmoCorrectionJob, AtmoCorrectionResult
 
 __all__ = [
     "FORMULAS",
     "OutputSpec",
     "correct_raster_streaming",
-    "SensorParams"
+    "SensorParams",
+    "AtmoCorrectionJob",
+    "AtmoCorrectionResult",
 ]
 
 # Optional: package metadata

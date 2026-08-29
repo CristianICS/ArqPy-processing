@@ -20,3 +20,5 @@
 /Toolbox/app/sam3_cropmarks_example.py
 
 sync.ffs_db
+Python/cleanup_pycache.py
+refactor_plan.md

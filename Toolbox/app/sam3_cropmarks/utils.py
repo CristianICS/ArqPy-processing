@@ -14,6 +14,9 @@ import torch
 from PIL import Image
 from rasterio.windows import Window
 
+from core.raster_io import RasterProfile, rasterio_profile_kwargs
+from core.tiling import axis_tile_starts
+
 
 SUPPORTED_EXTENSIONS = {".tif", ".tiff"}
 
@@ -29,25 +32,10 @@ def parse_rgb_bands(value: str) -> tuple[int, int, int]:
     return bands
 
 
-def _starts(length: int, tile_size: int, overlap: int) -> list[int]:
-    if length <= tile_size:
-        return [0]
-    stride = tile_size - overlap
-    starts = list(range(0, length - tile_size + 1, stride))
-    last = length - tile_size
-    if starts[-1] != last:
-        starts.append(last)
-    return starts
-
-
 def iter_windows(width: int, height: int, tile_size: int, overlap: int) -> Iterable[Window]:
     """Yield full-coverage windows, including image edges."""
-    if tile_size < 1:
-        raise ValueError("Tile size must be positive.")
-    if overlap < 0 or overlap >= tile_size:
-        raise ValueError("Overlap must be at least 0 and smaller than tile size.")
-    for row in _starts(height, tile_size, overlap):
-        for col in _starts(width, tile_size, overlap):
+    for row in axis_tile_starts(height, tile_size, overlap):
+        for col in axis_tile_starts(width, tile_size, overlap):
             yield Window(
                 col,
                 row,
@@ -84,6 +72,19 @@ def build_processor(confidence: float, checkpoint: Path | None = None):
         kwargs.update(checkpoint_path=str(checkpoint), load_from_HF=False)
     model = build_sam3_image_model(**kwargs)
     return Sam3Processor(model, device=device, confidence_threshold=confidence), device
+
+
+def _output_band_profile(source_profile: dict, dtype: str, predictor: int) -> dict:
+    """A single-band GTiff profile derived from a source raster's profile."""
+    profile = source_profile.copy()
+    profile.update(
+        count=1, dtype=dtype, nodata=0,
+        **rasterio_profile_kwargs(RasterProfile(
+            compress="DEFLATE", predictor=predictor, tiled=False,
+            blockxsize=None, blockysize=None, bigtiff="IF_SAFER",
+        )),
+    )
+    return profile
 
 
 def _tensor_to_numpy(value) -> np.ndarray:
@@ -130,13 +131,8 @@ def process_image(
                     f"{max(rgb_bands)} was requested."
                 )
 
-            mask_profile = source.profile.copy()
-            mask_profile.update(
-                driver="GTiff", count=1, dtype="uint8", nodata=0,
-                compress="deflate", predictor=1, BIGTIFF="IF_SAFER",
-            )
-            confidence_profile = mask_profile.copy()
-            confidence_profile.update(dtype="float32", predictor=3)
+            mask_profile = _output_band_profile(source.profile, "uint8", predictor=1)
+            confidence_profile = _output_band_profile(source.profile, "float32", predictor=3)
 
             windows = list(iter_windows(source.width, source.height, tile_size, overlap))
             instance_count = 0

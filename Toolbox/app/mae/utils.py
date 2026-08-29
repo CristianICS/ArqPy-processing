@@ -12,7 +12,10 @@ from rasterio.windows import Window
 from rasterio.mask import mask
 from rasterio.warp import transform_geom
 
-DEFAULT_TILE_OVERLAP = 128
+from core.raster_io import RasterProfile, rasterio_profile_kwargs
+from core.tiling import axis_tile_starts, iter_blocks
+
+DEFAULT_TILE_OVERLAP = 256
 DEFAULT_HANN_MIN_WEIGHT = 1e-3
 GTIFF_BLOCK_SIZE = 256
 
@@ -21,15 +24,11 @@ def _set_tiled_gtiff_profile(profile: dict, predictor: int) -> None:
     """Set valid tiled-GeoTIFF options without inherited block dimensions."""
     profile.pop("blockxsize", None)
     profile.pop("blockysize", None)
-    profile.update(
-        driver="GTiff",
-        tiled=True,
-        blockxsize=GTIFF_BLOCK_SIZE,
-        blockysize=GTIFF_BLOCK_SIZE,
-        compress="deflate",
-        predictor=predictor,
-        bigtiff="if_safer",
-    )
+    profile.update(rasterio_profile_kwargs(RasterProfile(
+        compress="DEFLATE", predictor=predictor, tiled=True,
+        blockxsize=GTIFF_BLOCK_SIZE, blockysize=GTIFF_BLOCK_SIZE,
+        bigtiff="IF_SAFER",
+    )))
 
 
 def parse_mae_bands(value: str) -> tuple[int, int, int]:
@@ -75,23 +74,37 @@ def validate_source_bands(
         )
 
 
-def _tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
-    """Return tile origins that cover an axis with the requested overlap."""
-    if tile_size < 1:
-        raise ValueError("Tile dimensions must be positive.")
-    if overlap < 0 or overlap >= tile_size:
-        raise ValueError(
-            "Tile overlap must be non-negative and smaller than the tile size."
-        )
-    if length <= tile_size:
-        return [0]
+def compute_global_band_stats(
+    img_path: Path,
+    bands: tuple[int, int, int],
+    block_size: int = 1024,
+) -> dict[int, tuple[float, float]]:
+    """Chunked, NoData-aware per-band (min, max) over the whole raster.
 
-    stride = tile_size - overlap
-    starts = list(range(0, length - tile_size + 1, stride))
-    final_start = length - tile_size
-    if starts[-1] != final_start:
-        starts.append(final_start)
-    return starts
+    Computed once per image so every tile can be normalized against the
+    same reference range instead of its own local footprint (see
+    `compute_mae`'s `band_stats` parameter).
+    """
+    stats: dict[int, tuple[float, float]] = {}
+    with rasterio.open(img_path) as src:
+        nodata = src.nodata
+        for band in set(bands):
+            vmin, vmax = np.inf, -np.inf
+            for win in iter_blocks(src.width, src.height, block_size, block_size):
+                window = Window(win.xoff, win.yoff, win.xsize, win.ysize)
+                arr = src.read(band, window=window).astype(np.float32)
+                valid = np.isfinite(arr)
+                if nodata is not None:
+                    if np.isnan(nodata):
+                        valid &= ~np.isnan(arr)
+                    else:
+                        valid &= arr != nodata
+                if np.any(valid):
+                    vals = arr[valid]
+                    vmin = min(vmin, float(vals.min()))
+                    vmax = max(vmax, float(vals.max()))
+            stats[band] = (vmin, vmax)
+    return stats
 
 
 def raised_hann_window(
@@ -152,8 +165,8 @@ def tilling(
         nodatavals = src.nodatavals
 
         tile_id = 1
-        y_starts = _tile_starts(img_height, target_height, overlap)
-        x_starts = _tile_starts(img_width, target_width, overlap)
+        y_starts = axis_tile_starts(img_height, target_height, overlap)
+        x_starts = axis_tile_starts(img_width, target_width, overlap)
         for y in y_starts:
             for x in x_starts:
                 w = min(target_width, img_width - x)
@@ -247,6 +260,7 @@ def compute_mae(
     model,
     device: str,
     bands: tuple[int, int, int] = (1, 1, 1),
+    band_stats: dict[int, tuple[float, float]] | None = None,
 ):
     """
     Note: This function does not a MAE training / reconstruction. It's just
@@ -255,6 +269,10 @@ def compute_mae(
     Caveat: MAE-pretrained weights were learned on natural RGB images.
     For other type of images, the features might still be useful, but the
     "pretraining prior" isn't perfectly matched.
+
+    `band_stats`, when given (see `compute_global_band_stats`), normalizes
+    against a fixed whole-raster range per band instead of this tile's own
+    local min/max, so neighboring tiles don't get inconsistent contrast.
     """
     validate_source_bands(img_path, bands)
     with rasterio.open(img_path) as src:
@@ -274,8 +292,12 @@ def compute_mae(
 
     # Normalize to [0, 1] per band
     img = img.astype(np.float32)
-    mins = img.reshape(C, -1).min(axis=1)[:, None, None]
-    maxs = img.reshape(C, -1).max(axis=1)[:, None, None]
+    if band_stats is not None:
+        mins = np.array([band_stats[b][0] for b in bands], dtype=np.float32)[:, None, None]
+        maxs = np.array([band_stats[b][1] for b in bands], dtype=np.float32)[:, None, None]
+    else:
+        mins = img.reshape(C, -1).min(axis=1)[:, None, None]
+        maxs = img.reshape(C, -1).max(axis=1)[:, None, None]
     img = (img - mins) / np.maximum(maxs - mins, 1e-6)
     
     # Convert to torch (B, C, H, W) and resize to 224
@@ -351,30 +373,39 @@ def compute_mae_batch(
     model,
     device: str,
     bands: tuple[int, int, int] = (1, 1, 1),
+    band_stats: dict[int, tuple[float, float]] | None = None,
     hann_min_weight: float = DEFAULT_HANN_MIN_WEIGHT,
     out_suffix = "_mae.tif"
 ):
     """
     Apply MAE ViT to all the image tiles.
-    
+
     :required_bands: Number of bands inside target images.
+    :band_stats: Passed straight through to `compute_mae`; also recorded as
+        the `MAE_NORMALIZATION` tag so a later run with a different
+        normalization mode doesn't reuse a stale cached tile.
     """
     if not tiles_meta:
         raise ValueError("No source tiles were provided for MAE inference.")
 
     model_source = _model_source(model)
+    normalization = "global" if band_stats is not None else "per_tile"
 
     for tile_id, props in tiles_meta.items():
 
         tile_path = Path(props["path"])
-        
+
         out_name = tile_path.stem + out_suffix
         out_tile_path = tile_path.parent / out_name
-        
+
         selected_bands = ",".join(map(str, bands))
         if out_tile_path.exists():
             with rasterio.open(out_tile_path) as existing:
-                if existing.tags().get("MAE_SOURCE_BANDS") == selected_bands:
+                tags = existing.tags()
+                if (
+                    tags.get("MAE_SOURCE_BANDS") == selected_bands
+                    and tags.get("MAE_NORMALIZATION") == normalization
+                ):
                     continue
 
         heatmap, out_meta = compute_mae(
@@ -382,6 +413,7 @@ def compute_mae_batch(
             model,
             device,
             bands=bands,
+            band_stats=band_stats,
         )
 
         with rasterio.open(out_tile_path, "w", **out_meta) as dst:
@@ -389,6 +421,7 @@ def compute_mae_batch(
             dst.update_tags(
                 MAE_SOURCE_BANDS=selected_bands,
                 MAE_BAND_INDEXING="one-based",
+                MAE_NORMALIZATION=normalization,
                 MAE_MODEL_SOURCE=model_source,
             )
 
@@ -403,6 +436,7 @@ def compute_mae_batch(
         dst.update_tags(
             MAE_SOURCE_BANDS=",".join(map(str, bands)),
             MAE_BAND_INDEXING="one-based",
+            MAE_NORMALIZATION=normalization,
             MAE_TILE_OVERLAP=str(overlap),
             MAE_BLEND_WINDOW="raised_hann",
             MAE_HANN_MIN_WEIGHT=f"{hann_min_weight:g}",
@@ -483,7 +517,12 @@ def merge_mae_tiles(
 
 
 def clip_mae(inp_path: Path, clip_layer_path: Path) -> None:
-    """Clip a raster in place using a vector cutline."""
+    """Clip a raster in place using a vector cutline.
+
+    Uses fiona/rasterio.mask rather than `core.clip` (GDAL-based): the
+    `mae` conda env ships rasterio and fiona but not the GDAL Python
+    bindings, so this tool's clip step must stay GDAL-free.
+    """
     temp_path = inp_path.with_stem(
         f"{inp_path.stem}_temp_{uuid4().hex}"
     )

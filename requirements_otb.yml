@@ -1,19 +1,10 @@
-name: arqpy_otb_zpnn
+name: arqpy_otb
 
 channels:
-  - pytorch
   - conda-forge
 
 dependencies:
   - python=3.10
-
-  # PyTorch / CUDA
-  - pytorch=1.12.1
-  - torchvision=0.13.1
-  - torchaudio=0.12.1
-  - cudatoolkit=11.3
-
-  # Scientific
   - numpy=1.26.4
   - scipy
   - scikit-learn
@@ -21,9 +12,5 @@ dependencies:
   - matplotlib
   - numexpr
   - tqdm
-
-  # GIS
   - gdal
-
-  # GUI
   - pysimplegui

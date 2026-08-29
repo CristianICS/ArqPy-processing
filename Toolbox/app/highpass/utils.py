@@ -7,6 +7,10 @@ from typing import Optional, Tuple
 import numpy as np
 from osgeo import gdal
 
+from core.clip import clip_raster_to_vector
+from core.raster_io import RasterProfile, create_gtiff_like
+from core.tiling import iter_blocks
+
 
 @dataclass(frozen=True)
 class HighPassKernels:
@@ -72,7 +76,6 @@ class GDALHighPassFilter:
         compress: str = "DEFLATE",
         bigtiff: str = "IF_SAFER",
     ) -> None:
-        gdal.UseExceptions()
         self.input_path = Path(input_path)
         self.band_index = int(band_index)
         self.block = int(block)
@@ -124,23 +127,13 @@ class GDALHighPassFilter:
         glcm = self.apply_glcm_contrast_highpass(glcm_path)
 
         if clip_layer_path:
+            clip_profile = RasterProfile(compress="DEFLATE", predictor=3, bigtiff="IF_SAFER")
             for lpath in [lap_path, log_path, sob_path, hbt_path, glcm_path]:
                 clip_out = lpath.with_name(lpath.name.replace(sfx, ""))
-                co = [
-                    "COMPRESS=DEFLATE",
-                    "PREDICTOR=3",  # Better for floats
-                    "BIGTIFF=IF_SAFER",
-                ]
-
-                gdal.Warp(
-                    clip_out,
-                    lpath,
-                    cutlineDSName=clip_layer_path,
-                    cropToCutline=True,
-                    multithread=True,
-                    format="COG",
-                    creationOptions=co,
-                    warpOptions=["NUM_THREADS=ALL_CPUS"],
+                clip_raster_to_vector(
+                    lpath, clip_layer_path, clip_out,
+                    profile=clip_profile,
+                    as_cog=True,
                 )
                 lpath.unlink()
 
@@ -190,20 +183,16 @@ class GDALHighPassFilter:
         xsize, ysize = self._ds.RasterXSize, self._ds.RasterYSize
         bs = self.block
 
-        for y0 in range(0, ysize, bs):
-            y1 = min(y0 + bs, ysize)
-            for x0 in range(0, xsize, bs):
-                x1 = min(x0 + bs, xsize)
+        for win in iter_blocks(xsize, ysize, bs, bs):
+            gx = gx_b.ReadAsArray(win.xoff, win.yoff, win.xsize, win.ysize).astype(np.float32)
+            gy = gy_b.ReadAsArray(win.xoff, win.yoff, win.xsize, win.ysize).astype(np.float32)
 
-                gx = gx_b.ReadAsArray(x0, y0, x1 - x0, y1 - y0).astype(np.float32)
-                gy = gy_b.ReadAsArray(x0, y0, x1 - x0, y1 - y0).astype(np.float32)
+            mag = np.sqrt(gx * gx + gy * gy)
 
-                mag = np.sqrt(gx * gx + gy * gy)
+            if self.nodata is not None:
+                mag = np.where((gx == self.nodata) | (gy == self.nodata), self.nodata, mag)
 
-                if self.nodata is not None:
-                    mag = np.where((gx == self.nodata) | (gy == self.nodata), self.nodata, mag)
-
-                out_b.WriteArray(mag, xoff=x0, yoff=y0)
+            out_b.WriteArray(mag, xoff=win.xoff, yoff=win.yoff)
 
         out_b.FlushCache()
         out_ds = None
@@ -211,15 +200,8 @@ class GDALHighPassFilter:
         gy_ds = None
 
         # Cleanup temps
-        try:
-            tmp_gx.unlink(missing_ok=True)
-            tmp_gy.unlink(missing_ok=True)
-        except TypeError:
-            # Python < 3.8: missing_ok not available
-            if tmp_gx.exists():
-                tmp_gx.unlink()
-            if tmp_gy.exists():
-                tmp_gy.unlink()
+        tmp_gx.unlink(missing_ok=True)
+        tmp_gy.unlink(missing_ok=True)
 
         return out_path
 
@@ -281,23 +263,19 @@ class GDALHighPassFilter:
     # Internals
     # -------------------------
     def _create_output_like(self, out_path: Path, dtype=gdal.GDT_Float32) -> gdal.Dataset:
-        drv = gdal.GetDriverByName("GTiff")
-        out_ds = drv.Create(
-            str(out_path),
+        out_ds = create_gtiff_like(
+            out_path,
             self._ds.RasterXSize,
             self._ds.RasterYSize,
             1,
             dtype,
-            options=[
-                "TILED=YES",
-                f"COMPRESS={self.compress}",
-                "PREDICTOR=3",          # best for float
-                f"BIGTIFF={self.bigtiff}",
-                "NUM_THREADS=ALL_CPUS",
-            ],
+            geotransform=self._ds.GetGeoTransform(),
+            projection=self._ds.GetProjection(),
+            profile=RasterProfile(
+                compress=self.compress, predictor=3, tiled=True,
+                blockxsize=None, blockysize=None, bigtiff=self.bigtiff,
+            ),
         )
-        out_ds.SetGeoTransform(self._ds.GetGeoTransform())
-        out_ds.SetProjection(self._ds.GetProjection())
         if self.nodata is not None:
             out_ds.GetRasterBand(1).SetNoDataValue(self.nodata)
         return out_ds
@@ -310,23 +288,20 @@ class GDALHighPassFilter:
         vmin = np.inf
         vmax = -np.inf
 
-        for y0 in range(0, ysize, bs):
-            y1 = min(y0 + bs, ysize)
-            for x0 in range(0, xsize, bs):
-                x1 = min(x0 + bs, xsize)
-                arr = band.ReadAsArray(x0, y0, x1 - x0, y1 - y0).astype(np.float32)
+        for win in iter_blocks(xsize, ysize, bs, bs):
+            arr = band.ReadAsArray(win.xoff, win.yoff, win.xsize, win.ysize).astype(np.float32)
 
-                valid = np.isfinite(arr)
-                if nd is not None:
-                    if np.isnan(nd):
-                        valid &= ~np.isnan(arr)
-                    else:
-                        valid &= arr != nd
+            valid = np.isfinite(arr)
+            if nd is not None:
+                if np.isnan(nd):
+                    valid &= ~np.isnan(arr)
+                else:
+                    valid &= arr != nd
 
-                if np.any(valid):
-                    vals = arr[valid]
-                    vmin = min(vmin, float(np.min(vals)))
-                    vmax = max(vmax, float(np.max(vals)))
+            if np.any(valid):
+                vals = arr[valid]
+                vmin = min(vmin, float(np.min(vals)))
+                vmax = max(vmax, float(np.max(vals)))
 
         return vmin, vmax
 
@@ -365,77 +340,76 @@ class GDALHighPassFilter:
         nd = self.nodata
         scale = (levels - 1) / (vmax - vmin)
 
-        for y0 in range(0, ysize, bs):
-            y1 = min(y0 + bs, ysize)
-            for x0 in range(0, xsize, bs):
-                x1 = min(x0 + bs, xsize)
+        for win in iter_blocks(xsize, ysize, bs, bs):
+            x0, y0 = win.xoff, win.yoff
+            x1, y1 = x0 + win.xsize, y0 + win.ysize
 
-                rx0 = max(x0 - margin_x, 0)
-                ry0 = max(y0 - margin_y, 0)
-                rx1 = min(x1 + margin_x, xsize)
-                ry1 = min(y1 + margin_y, ysize)
+            rx0 = max(x0 - margin_x, 0)
+            ry0 = max(y0 - margin_y, 0)
+            rx1 = min(x1 + margin_x, xsize)
+            ry1 = min(y1 + margin_y, ysize)
 
-                arr = band.ReadAsArray(rx0, ry0, rx1 - rx0, ry1 - ry0).astype(np.float32)
+            arr = band.ReadAsArray(rx0, ry0, rx1 - rx0, ry1 - ry0).astype(np.float32)
 
-                valid = np.isfinite(arr)
-                if nd is not None:
-                    if np.isnan(nd):
-                        valid &= ~np.isnan(arr)
-                    else:
-                        valid &= arr != nd
-
-                q = np.zeros(arr.shape, dtype=np.int16)
-                q[valid] = np.clip(
-                    np.rint((arr[valid] - vmin) * scale),
-                    0,
-                    levels - 1,
-                ).astype(np.int16)
-
-                contrast_sum = np.zeros(arr.shape, dtype=np.float32)
-                contrast_count = np.zeros(arr.shape, dtype=np.float32)
-                h, w = arr.shape
-
-                for dy, dx in offsets:
-                    y_src0 = max(0, -dy)
-                    y_src1 = min(h, h - dy)
-                    x_src0 = max(0, -dx)
-                    x_src1 = min(w, w - dx)
-
-                    y_dst0 = y_src0 + dy
-                    y_dst1 = y_src1 + dy
-                    x_dst0 = x_src0 + dx
-                    x_dst1 = x_src1 + dx
-
-                    pair_diff = np.zeros(arr.shape, dtype=np.float32)
-                    pair_valid = np.zeros(arr.shape, dtype=np.float32)
-
-                    src = q[y_src0:y_src1, x_src0:x_src1]
-                    dst = q[y_dst0:y_dst1, x_dst0:x_dst1]
-                    ok = valid[y_src0:y_src1, x_src0:x_src1] & valid[y_dst0:y_dst1, x_dst0:x_dst1]
-
-                    pair_diff[y_src0:y_src1, x_src0:x_src1] = np.where(
-                        ok,
-                        (src.astype(np.float32) - dst.astype(np.float32)) ** 2,
-                        0.0,
-                    )
-                    pair_valid[y_src0:y_src1, x_src0:x_src1] = ok.astype(np.float32)
-
-                    contrast_sum += self._box_sum_same(pair_diff, radius)
-                    contrast_count += self._box_sum_same(pair_valid, radius)
-
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    glcm_contrast = np.where(contrast_count > 0, contrast_sum / contrast_count, 0.0)
-
-                # Mark center pixels that are NoData as NoData in the output.
-                if nd is not None:
-                    glcm_contrast = np.where(valid, glcm_contrast, nd).astype(np.float32)
+            valid = np.isfinite(arr)
+            if nd is not None:
+                if np.isnan(nd):
+                    valid &= ~np.isnan(arr)
                 else:
-                    glcm_contrast = glcm_contrast.astype(np.float32)
+                    valid &= arr != nd
 
-                oy0 = y0 - ry0
-                ox0 = x0 - rx0
-                out_chunk = glcm_contrast[oy0:oy0 + (y1 - y0), ox0:ox0 + (x1 - x0)]
-                out_band.WriteArray(out_chunk, xoff=x0, yoff=y0)
+            q = np.zeros(arr.shape, dtype=np.int16)
+            q[valid] = np.clip(
+                np.rint((arr[valid] - vmin) * scale),
+                0,
+                levels - 1,
+            ).astype(np.int16)
+
+            contrast_sum = np.zeros(arr.shape, dtype=np.float32)
+            contrast_count = np.zeros(arr.shape, dtype=np.float32)
+            h, w = arr.shape
+
+            for dy, dx in offsets:
+                y_src0 = max(0, -dy)
+                y_src1 = min(h, h - dy)
+                x_src0 = max(0, -dx)
+                x_src1 = min(w, w - dx)
+
+                y_dst0 = y_src0 + dy
+                y_dst1 = y_src1 + dy
+                x_dst0 = x_src0 + dx
+                x_dst1 = x_src1 + dx
+
+                pair_diff = np.zeros(arr.shape, dtype=np.float32)
+                pair_valid = np.zeros(arr.shape, dtype=np.float32)
+
+                src = q[y_src0:y_src1, x_src0:x_src1]
+                dst = q[y_dst0:y_dst1, x_dst0:x_dst1]
+                ok = valid[y_src0:y_src1, x_src0:x_src1] & valid[y_dst0:y_dst1, x_dst0:x_dst1]
+
+                pair_diff[y_src0:y_src1, x_src0:x_src1] = np.where(
+                    ok,
+                    (src.astype(np.float32) - dst.astype(np.float32)) ** 2,
+                    0.0,
+                )
+                pair_valid[y_src0:y_src1, x_src0:x_src1] = ok.astype(np.float32)
+
+                contrast_sum += self._box_sum_same(pair_diff, radius)
+                contrast_count += self._box_sum_same(pair_valid, radius)
+
+            with np.errstate(divide="ignore", invalid="ignore"):
+                glcm_contrast = np.where(contrast_count > 0, contrast_sum / contrast_count, 0.0)
+
+            # Mark center pixels that are NoData as NoData in the output.
+            if nd is not None:
+                glcm_contrast = np.where(valid, glcm_contrast, nd).astype(np.float32)
+            else:
+                glcm_contrast = glcm_contrast.astype(np.float32)
+
+            oy0 = y0 - ry0
+            ox0 = x0 - rx0
+            out_chunk = glcm_contrast[oy0:oy0 + (y1 - y0), ox0:ox0 + (x1 - x0)]
+            out_band.WriteArray(out_chunk, xoff=x0, yoff=y0)
 
         out_band.FlushCache()
 
@@ -465,71 +439,70 @@ class GDALHighPassFilter:
         ksum = float(np.sum(k))
         do_renorm = abs(ksum) > 1e-6  # non-zero-sum kernels only
 
-        for y0 in range(0, ysize, bs):
-            y1 = min(y0 + bs, ysize)
-            for x0 in range(0, xsize, bs):
-                x1 = min(x0 + bs, xsize)
+        for win in iter_blocks(xsize, ysize, bs, bs):
+            x0, y0 = win.xoff, win.yoff
+            x1, y1 = x0 + win.xsize, y0 + win.ysize
 
-                # Read with overlap
-                rx0 = max(x0 - pad_x, 0)
-                ry0 = max(y0 - pad_y, 0)
-                rx1 = min(x1 + pad_x, xsize)
-                ry1 = min(y1 + pad_y, ysize)
+            # Read with overlap
+            rx0 = max(x0 - pad_x, 0)
+            ry0 = max(y0 - pad_y, 0)
+            rx1 = min(x1 + pad_x, xsize)
+            ry1 = min(y1 + pad_y, ysize)
 
-                arr = band.ReadAsArray(rx0, ry0, rx1 - rx0, ry1 - ry0).astype(np.float32)
-                arr_p = np.pad(arr, ((pad_y, pad_y), (pad_x, pad_x)), mode="reflect")
+            arr = band.ReadAsArray(rx0, ry0, rx1 - rx0, ry1 - ry0).astype(np.float32)
+            arr_p = np.pad(arr, ((pad_y, pad_y), (pad_x, pad_x)), mode="reflect")
 
-                out_h = arr_p.shape[0] - 2 * pad_y
-                out_w = arr_p.shape[1] - 2 * pad_x
+            out_h = arr_p.shape[0] - 2 * pad_y
+            out_w = arr_p.shape[1] - 2 * pad_x
 
-                out_full = np.zeros((out_h, out_w), dtype=np.float32)
+            out_full = np.zeros((out_h, out_w), dtype=np.float32)
 
-                if nd is None:
-                    # Fast path: no nodata
+            if nd is None:
+                # Fast path: no nodata
+                for j in range(kh):
+                    for i in range(kw):
+                        out_full += k[j, i] * arr_p[j:j + out_h, i:i + out_w]
+            else:
+                # Build nodata mask (handle NaN nodata correctly)
+                if np.isnan(nd):
+                    mask_p = np.isnan(arr_p)
+                else:
+                    mask_p = (arr_p == nd)
+
+                if do_renorm:
+                    # Low-pass style: renormalize locally by sum of weights over valid pixels
+                    wsum = np.zeros((out_h, out_w), dtype=np.float32)
+
                     for j in range(kh):
                         for i in range(kw):
-                            out_full += k[j, i] * arr_p[j:j + out_h, i:i + out_w]
+                            w = k[j, i]
+                            win_arr = arr_p[j:j + out_h, i:i + out_w]
+                            valid = ~mask_p[j:j + out_h, i:i + out_w]
+                            out_full += w * np.where(valid, win_arr, 0.0)
+                            wsum += w * valid.astype(np.float32)
+
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        out_full = np.where(wsum != 0.0, out_full / wsum, nd)
                 else:
-                    # Build nodata mask (handle NaN nodata correctly)
-                    if np.isnan(nd):
-                        mask_p = np.isnan(arr_p)
-                    else:
-                        mask_p = (arr_p == nd)
+                    # High-pass/derivative: DO NOT renormalize (kernel sum ~ 0)
+                    # Instead, ignore nodata in the sum and mark output nodata
+                    # wherever any nodata was inside the footprint.
+                    any_nd = np.zeros((out_h, out_w), dtype=bool)
 
-                    if do_renorm:
-                        # Low-pass style: renormalize locally by sum of weights over valid pixels
-                        wsum = np.zeros((out_h, out_w), dtype=np.float32)
+                    for j in range(kh):
+                        for i in range(kw):
+                            win_arr = arr_p[j:j + out_h, i:i + out_w]
+                            nd_here = mask_p[j:j + out_h, i:i + out_w]
+                            any_nd |= nd_here
+                            out_full += k[j, i] * np.where(nd_here, 0.0, win_arr)
 
-                        for j in range(kh):
-                            for i in range(kw):
-                                w = k[j, i]
-                                win = arr_p[j:j + out_h, i:i + out_w]
-                                valid = ~mask_p[j:j + out_h, i:i + out_w]
-                                out_full += w * np.where(valid, win, 0.0)
-                                wsum += w * valid.astype(np.float32)
+                    out_full = np.where(any_nd, nd, out_full)
 
-                        with np.errstate(divide="ignore", invalid="ignore"):
-                            out_full = np.where(wsum != 0.0, out_full / wsum, nd)
-                    else:
-                        # High-pass/derivative: DO NOT renormalize (kernel sum ~ 0)
-                        # Instead, ignore nodata in the sum and mark output nodata
-                        # wherever any nodata was inside the footprint.
-                        any_nd = np.zeros((out_h, out_w), dtype=bool)
+            # Crop back to non-overlap chunk
+            oy0 = y0 - ry0
+            ox0 = x0 - rx0
+            out_chunk = out_full[oy0:oy0 + (y1 - y0), ox0:ox0 + (x1 - x0)]
 
-                        for j in range(kh):
-                            for i in range(kw):
-                                win = arr_p[j:j + out_h, i:i + out_w]
-                                nd_here = mask_p[j:j + out_h, i:i + out_w]
-                                any_nd |= nd_here
-                                out_full += k[j, i] * np.where(nd_here, 0.0, win)
-
-                        out_full = np.where(any_nd, nd, out_full)
-
-                # Crop back to non-overlap chunk
-                oy0 = y0 - ry0
-                ox0 = x0 - rx0
-                out_chunk = out_full[oy0:oy0 + (y1 - y0), ox0:ox0 + (x1 - x0)]
-
-                out_band.WriteArray(out_chunk, xoff=x0, yoff=y0)
+            out_band.WriteArray(out_chunk, xoff=x0, yoff=y0)
 
         out_band.FlushCache()
